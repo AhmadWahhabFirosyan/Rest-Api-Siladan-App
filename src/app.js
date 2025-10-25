@@ -1,6 +1,6 @@
 /**
  * ============================================
- * SERVICE DESK API - VERSI SEDERHANA
+ * Siladan App
  * ============================================
  * Fitur Utama:
  * 1. Authentication (Login/Register)
@@ -21,7 +21,7 @@ const { swaggerDocs, swaggerUiOptions } = require("./swagger.js"); // Import dar
 require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 8080;
 
 // ============================================
 // MIDDLEWARE
@@ -35,9 +35,6 @@ app.use(
   swaggerUi.serve,
   swaggerUi.setup(swaggerDocs, swaggerUiOptions)
 );
-
-// ... (sisanya kode app.js tetap sama, termasuk SUPABASE CONNECTION, HELPER FUNCTIONS, semua endpoint, error handler, dan app.listen)
-
 // ============================================
 // ROOT ENDPOINT
 // ============================================
