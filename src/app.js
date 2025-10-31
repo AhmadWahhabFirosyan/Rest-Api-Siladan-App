@@ -1,6 +1,6 @@
 /**
  * ============================================
- * Siladan App
+ * SERVICE DESK API
  * ============================================
  * Fitur Utama:
  * 1. Authentication (Login/Register)
@@ -8,6 +8,9 @@
  * 3. User Management
  * 4. Knowledge Base
  * 5. Dashboard & Reports
+ * 6. Integration (Asset & Change Management)
+ * 7. Webhooks
+ * 8. Notifications
  * ============================================
  */
 
@@ -16,8 +19,9 @@ const { createClient } = require("@supabase/supabase-js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
-const swaggerUi = require("swagger-ui-express"); // Tambahkan ini
-const { swaggerDocs, swaggerUiOptions } = require("./swagger.js"); // Import dari swagger.js (asumsi file sama direktori)
+const swaggerUi = require("swagger-ui-express");
+const { swaggerDocs, swaggerUiOptions } = require("./swagger.js");
+const crypto = require("crypto");
 require("dotenv").config();
 
 const app = express();
@@ -29,26 +33,12 @@ const PORT = process.env.PORT || 8080;
 app.use(cors());
 app.use(express.json());
 
-// Tambahkan Swagger UI route di sini
+// Swagger UI
 app.use(
   "/api-docs",
   swaggerUi.serve,
   swaggerUi.setup(swaggerDocs, swaggerUiOptions)
 );
-// ============================================
-// ROOT ENDPOINT
-// ============================================
-app.get("/", (req, res) => {
-  res.json({
-    message: "Service Desk API - Versi Sederhana",
-    version: "1.0.0",
-    endpoints: {
-      // ... (endpoint list tetap)
-    },
-    health: "/health",
-    docs: "/api-docs", // Tambahkan ini untuk referensi
-  });
-});
 
 // ============================================
 // SUPABASE CONNECTION
@@ -59,6 +49,75 @@ const supabase = createClient(
 );
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
+
+// SSO Configuration
+const SSO_CONFIG = {
+  enabled: process.env.SSO_ENABLED === 'true',
+  domain: process.env.SSO_DOMAIN || 'company.com',
+  redirectUrl: process.env.SSO_REDIRECT_URL || 'http://localhost:8080/api/auth/sso/callback',
+  metadataUrl: process.env.SSO_METADATA_URL,
+  attributeMapping: {
+    email: 'email',
+    firstName: 'givenName',
+    lastName: 'surname',
+    department: 'department',
+    role: 'role'
+  }
+};
+
+// RBAC Configuration
+const RBAC_ROLES = {
+  'super_admin': {
+    permissions: ['*'], // All permissions
+    description: 'Super Administrator'
+  },
+  'admin_kota': {
+    permissions: [
+      'tickets.read', 'tickets.write', 'tickets.delete',
+      'users.read', 'users.write', 'users.delete',
+      'knowledge_base.read', 'knowledge_base.write', 'knowledge_base.delete',
+      'reports.read', 'dashboard.read'
+    ],
+    description: 'Administrator Kota'
+  },
+  'admin_opd': {
+    permissions: [
+      'tickets.read', 'tickets.write',
+      'users.read', 'users.write',
+      'knowledge_base.read', 'knowledge_base.write',
+      'reports.read', 'dashboard.read'
+    ],
+    description: 'Administrator OPD'
+  },
+  'agent': {
+    permissions: [
+      'tickets.read', 'tickets.write',
+      'knowledge_base.read',
+      'dashboard.read'
+    ],
+    description: 'Service Desk Agent'
+  },
+  'user': {
+    permissions: [
+      'tickets.read', 'tickets.write',
+      'knowledge_base.read'
+    ],
+    description: 'End User'
+  }
+};
+const WEBHOOK_SECRET =
+  process.env.WEBHOOK_SECRET || "webhook-secret-change-this";
+
+// Test connection
+(async () => {
+  try {
+    const { error } = await supabase.from("users").select("count").limit(1);
+    if (error) throw error;
+    console.log("✅ Database connected");
+  } catch (err) {
+    console.error("❌ Database connection error:", err.message);
+  }
+})();
 
 // ============================================
 // HELPER FUNCTIONS
@@ -92,6 +151,180 @@ const authorizeRole = (...roles) => {
   };
 };
 
+// Middleware untuk cek permission
+const authorizePermission = (permission) => {
+  return (req, res, next) => {
+    const userRole = req.user.role;
+    const roleConfig = RBAC_ROLES[userRole];
+    
+    if (!roleConfig) {
+      return res.status(403).json({ error: "Role tidak valid" });
+    }
+    
+    // Check if user has permission or wildcard permission
+    if (roleConfig.permissions.includes('*') || roleConfig.permissions.includes(permission)) {
+      next();
+    } else {
+      return res.status(403).json({ error: "Permission tidak cukup" });
+    }
+  };
+};
+
+// SSO Authentication middleware
+const authenticateSSO = async (req, res, next) => {
+  try {
+    if (!SSO_CONFIG.enabled) {
+      return res.status(400).json({ error: "SSO tidak diaktifkan" });
+    }
+
+    const { domain } = req.body;
+    
+    if (!domain) {
+      return res.status(400).json({ error: "Domain diperlukan untuk SSO" });
+    }
+
+    // Generate state parameter for security
+    const state = crypto.randomBytes(32).toString('hex');
+    
+    // Store state in session or database for validation
+    req.session = req.session || {};
+    req.session.ssoState = state;
+    
+    // Redirect to Supabase SSO
+    const ssoUrl = `${process.env.SUPABASE_URL}/auth/v1/sso/saml/acs?domain=${domain}&state=${state}`;
+    
+    res.json({
+      success: true,
+      redirectUrl: ssoUrl,
+      state: state
+    });
+  } catch (error) {
+    console.error("SSO Authentication error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan pada SSO authentication" });
+  }
+};
+
+// SSO Callback handler
+const handleSSOCallback = async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    
+    if (!code) {
+      return res.status(400).json({ error: "Authorization code tidak ditemukan" });
+    }
+
+    // Exchange code for session
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    
+    if (error) {
+      console.error("SSO Callback error:", error);
+      return res.status(400).json({ error: "Gagal menukar kode untuk session" });
+    }
+
+    const { user, session } = data;
+    
+    if (!user || !session) {
+      return res.status(400).json({ error: "User atau session tidak ditemukan" });
+    }
+
+    // Extract user information from SSO
+    const userMetadata = user.user_metadata || {};
+    const email = user.email;
+    const firstName = userMetadata.first_name || userMetadata.givenName || '';
+    const lastName = userMetadata.last_name || userMetadata.surname || '';
+    const department = userMetadata.department || '';
+    const ssoRole = userMetadata.role || 'user';
+
+    // Check if user exists in local database
+    let { data: existingUser, error: userError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("email", email)
+      .single();
+
+    let userId;
+    let userRole = ssoRole;
+
+    if (userError && userError.code === 'PGRST116') {
+      // User doesn't exist, create new user
+      const { data: newUser, error: createError } = await supabase
+        .from("users")
+        .insert({
+          username: email.split('@')[0],
+          email: email,
+          full_name: `${firstName} ${lastName}`.trim() || email.split('@')[0],
+          role: userRole,
+          opd_id: null,
+          sso_provider: 'saml',
+          sso_id: user.id,
+          department: department,
+          is_active: true
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        console.error("Create user error:", createError);
+        return res.status(500).json({ error: "Gagal membuat user baru" });
+      }
+
+      userId = newUser.id;
+      existingUser = newUser;
+    } else if (userError) {
+      console.error("User lookup error:", userError);
+      return res.status(500).json({ error: "Terjadi kesalahan saat mencari user" });
+    } else {
+      // User exists, update SSO information
+      userId = existingUser.id;
+      
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({
+          sso_provider: 'saml',
+          sso_id: user.id,
+          department: department,
+          last_login: new Date()
+        })
+        .eq("id", userId);
+
+      if (updateError) {
+        console.error("Update user error:", updateError);
+      }
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        id: userId,
+        email: email,
+        role: userRole,
+        permissions: RBAC_ROLES[userRole]?.permissions || [],
+        sso: true
+      },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    res.json({
+      success: true,
+      message: "SSO login berhasil",
+      token: token,
+      user: {
+        id: userId,
+        email: email,
+        full_name: existingUser.full_name,
+        role: userRole,
+        department: department,
+        permissions: RBAC_ROLES[userRole]?.permissions || []
+      }
+    });
+
+  } catch (error) {
+    console.error("SSO Callback error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+};
+
 // Generate ticket number
 const generateTicketNumber = (type) => {
   const prefix = type === "incident" ? "INC" : "REQ";
@@ -102,7 +335,7 @@ const generateTicketNumber = (type) => {
   return `${prefix}-${year}-${random}`;
 };
 
-// Hitung SLA due date (sederhana)
+// Hitung SLA due date
 const calculateSLADue = async (priority, opdId) => {
   try {
     const { data: sla } = await supabase
@@ -139,6 +372,20 @@ const logTicketActivity = async (ticketId, userId, action, description) => {
   }
 };
 
+// Send notification helper
+const sendNotification = async (userId, title, message, type = "info") => {
+  try {
+    await supabase.from("notifications").insert({
+      user_id: userId,
+      title,
+      message,
+      type,
+    });
+  } catch (error) {
+    console.error("Error sending notification:", error);
+  }
+};
+
 // ============================================
 // 1. AUTHENTICATION ENDPOINTS
 // ============================================
@@ -151,15 +398,12 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const { username, password, email, full_name, role, opd_id } = req.body;
 
-    // Validasi input
     if (!username || !password || !email || !role) {
       return res.status(400).json({ error: "Data tidak lengkap" });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert user
     const { data, error } = await supabase
       .from("users")
       .insert({
@@ -212,7 +456,6 @@ app.post("/api/auth/login", async (req, res) => {
         .json({ error: "Username dan password harus diisi" });
     }
 
-    // Cari user
     const { data: user, error } = await supabase
       .from("users")
       .select("*")
@@ -223,19 +466,16 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Username atau password salah" });
     }
 
-    // Cek password
     const isValidPassword = await bcrypt.compare(password, user.password);
     if (!isValidPassword) {
       return res.status(401).json({ error: "Username atau password salah" });
     }
 
-    // Update last login
     await supabase
       .from("users")
       .update({ last_login_at: new Date() })
       .eq("id", user.id);
 
-    // Generate JWT token
     const token = jwt.sign(
       {
         id: user.id,
@@ -292,24 +532,19 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
 
 /**
  * POST /api/tickets
- * Buat tiket baru (Incident atau Request)
+ * Buat tiket baru
  */
 app.post("/api/tickets", authenticateToken, async (req, res) => {
   try {
     const { type, title, description, priority, category, opd_id } = req.body;
 
-    // Validasi
     if (!type || !title || !description || !priority) {
       return res.status(400).json({ error: "Data tidak lengkap" });
     }
 
-    // Generate ticket number
     const ticketNumber = generateTicketNumber(type);
-
-    // Hitung SLA
     const slaDue = await calculateSLADue(priority, opd_id || req.user.opd_id);
 
-    // Insert ticket
     const { data: ticket, error } = await supabase
       .from("tickets")
       .insert({
@@ -329,7 +564,6 @@ app.post("/api/tickets", authenticateToken, async (req, res) => {
 
     if (error) throw error;
 
-    // Log aktivitas
     await logTicketActivity(
       ticket.id,
       req.user.id,
@@ -350,7 +584,7 @@ app.post("/api/tickets", authenticateToken, async (req, res) => {
 
 /**
  * GET /api/tickets
- * Get daftar tiket (dengan filter)
+ * Get daftar tiket dengan filter
  */
 app.get("/api/tickets", authenticateToken, async (req, res) => {
   try {
@@ -368,7 +602,6 @@ app.get("/api/tickets", authenticateToken, async (req, res) => {
       )
       .order("created_at", { ascending: false });
 
-    // Filter berdasarkan role
     if (req.user.role === "pengguna") {
       query = query.eq("reporter_id", req.user.id);
     } else if (req.user.role === "teknisi") {
@@ -376,9 +609,7 @@ app.get("/api/tickets", authenticateToken, async (req, res) => {
     } else if (req.user.role === "admin_opd") {
       query = query.eq("opd_id", req.user.opd_id);
     }
-    // admin_kota bisa lihat semua
 
-    // Filter tambahan
     if (status) query = query.eq("status", status);
     if (priority) query = query.eq("priority", priority);
     if (type) query = query.eq("type", type);
@@ -389,7 +620,6 @@ app.get("/api/tickets", authenticateToken, async (req, res) => {
     }
 
     const { data, error } = await query;
-
     if (error) throw error;
 
     res.json({
@@ -427,12 +657,10 @@ app.get("/api/tickets/:id", authenticateToken, async (req, res) => {
       return res.status(404).json({ error: "Tiket tidak ditemukan" });
     }
 
-    // Cek akses
     if (req.user.role === "pengguna" && ticket.reporter_id !== req.user.id) {
       return res.status(403).json({ error: "Akses ditolak" });
     }
 
-    // Get comments
     const { data: comments } = await supabase
       .from("ticket_comments")
       .select(
@@ -444,7 +672,6 @@ app.get("/api/tickets/:id", authenticateToken, async (req, res) => {
       .eq("ticket_id", req.params.id)
       .order("created_at", { ascending: true });
 
-    // Get logs
     const { data: logs } = await supabase
       .from("ticket_logs")
       .select(
@@ -476,9 +703,7 @@ app.put("/api/tickets/:id", authenticateToken, async (req, res) => {
   try {
     const { status, priority, category, title, description } = req.body;
 
-    const updateData = {
-      updated_at: new Date(),
-    };
+    const updateData = { updated_at: new Date() };
 
     if (status) {
       updateData.status = status;
@@ -499,7 +724,6 @@ app.put("/api/tickets/:id", authenticateToken, async (req, res) => {
 
     if (error) throw error;
 
-    // Log aktivitas
     await logTicketActivity(
       req.params.id,
       req.user.id,
@@ -534,7 +758,6 @@ app.post(
         return res.status(400).json({ error: "ID teknisi harus diisi" });
       }
 
-      // Cek apakah user adalah teknisi
       const { data: technician } = await supabase
         .from("users")
         .select("id, role")
@@ -545,7 +768,6 @@ app.post(
         return res.status(400).json({ error: "User bukan teknisi" });
       }
 
-      // Assign
       const { data, error } = await supabase
         .from("tickets")
         .update({
@@ -559,12 +781,18 @@ app.post(
 
       if (error) throw error;
 
-      // Log
       await logTicketActivity(
         req.params.id,
         req.user.id,
         "assign",
         `Tiket di-assign ke teknisi ID: ${technician_id}`
+      );
+
+      await sendNotification(
+        technician_id,
+        "Ticket Assigned",
+        `Ticket ${data.ticket_number} telah di-assign kepada Anda`,
+        "info"
       );
 
       res.json({
@@ -608,7 +836,6 @@ app.post("/api/tickets/:id/comments", authenticateToken, async (req, res) => {
 
     if (error) throw error;
 
-    // Log
     await logTicketActivity(
       req.params.id,
       req.user.id,
@@ -627,13 +854,90 @@ app.post("/api/tickets/:id/comments", authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/tickets/:id/escalate
+ * Escalate ticket ke priority lebih tinggi
+ */
+app.post(
+  "/api/tickets/:id/escalate",
+  authenticateToken,
+  authorizeRole("admin_kota", "admin_opd", "teknisi"),
+  async (req, res) => {
+    try {
+      const { reason } = req.body;
+
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("id", req.params.id)
+        .single();
+
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket tidak ditemukan" });
+      }
+
+      let newPriority = ticket.priority;
+      if (ticket.priority === "low") newPriority = "medium";
+      else if (ticket.priority === "medium") newPriority = "high";
+      else if (ticket.priority === "high") newPriority = "critical";
+      else {
+        return res
+          .status(400)
+          .json({ error: "Ticket sudah di priority maksimal" });
+      }
+
+      await supabase
+        .from("tickets")
+        .update({
+          priority: newPriority,
+          updated_at: new Date(),
+        })
+        .eq("id", req.params.id);
+
+      await logTicketActivity(
+        req.params.id,
+        req.user.id,
+        "escalate",
+        `Escalated: ${ticket.priority} → ${newPriority}. Reason: ${
+          reason || "N/A"
+        }`
+      );
+
+      const { data: admins } = await supabase
+        .from("users")
+        .select("id")
+        .eq("role", "admin_opd")
+        .eq("opd_id", ticket.opd_id);
+
+      for (const admin of admins || []) {
+        await sendNotification(
+          admin.id,
+          "Ticket Escalated",
+          `Ticket ${ticket.ticket_number} telah di-escalate ke priority ${newPriority}`,
+          "warning"
+        );
+      }
+
+      res.json({
+        success: true,
+        message: "Ticket berhasil di-escalate",
+        old_priority: ticket.priority,
+        new_priority: newPriority,
+      });
+    } catch (error) {
+      console.error("Escalate error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
 // ============================================
 // 3. USER MANAGEMENT
 // ============================================
 
 /**
  * GET /api/users
- * Get daftar user (admin only)
+ * Get daftar user
  */
 app.get(
   "/api/users",
@@ -648,7 +952,6 @@ app.get(
         )
         .order("created_at", { ascending: false });
 
-      // Admin OPD hanya bisa lihat user di OPD-nya
       if (req.user.role === "admin_opd") {
         query = query.eq("opd_id", req.user.opd_id);
       }
@@ -670,7 +973,7 @@ app.get(
 
 /**
  * GET /api/users/technicians
- * Get daftar teknisi (untuk assign tiket)
+ * Get daftar teknisi
  */
 app.get("/api/users/technicians", authenticateToken, async (req, res) => {
   try {
@@ -680,7 +983,6 @@ app.get("/api/users/technicians", authenticateToken, async (req, res) => {
       .eq("role", "teknisi")
       .eq("is_active", true);
 
-    // Filter by OPD if not admin_kota
     if (req.user.role !== "admin_kota" && req.user.opd_id) {
       query = query.eq("opd_id", req.user.opd_id);
     }
@@ -701,7 +1003,7 @@ app.get("/api/users/technicians", authenticateToken, async (req, res) => {
 
 /**
  * PUT /api/users/:id
- * Update user (admin only)
+ * Update user
  */
 app.put(
   "/api/users/:id",
@@ -748,7 +1050,7 @@ app.put(
 
 /**
  * GET /api/knowledge-base
- * Get artikel knowledge base (dengan search)
+ * Get artikel knowledge base
  */
 app.get("/api/knowledge-base", async (req, res) => {
   try {
@@ -764,7 +1066,6 @@ app.get("/api/knowledge-base", async (req, res) => {
       )
       .order("view_count", { ascending: false });
 
-    // Hanya tampilkan published jika bukan admin
     if (
       !req.user ||
       (req.user.role !== "admin_kota" && req.user.role !== "admin_opd")
@@ -814,7 +1115,6 @@ app.get("/api/knowledge-base/:id", async (req, res) => {
       return res.status(404).json({ error: "Artikel tidak ditemukan" });
     }
 
-    // Increment view count
     await supabase
       .from("knowledge_base")
       .update({ view_count: (article.view_count || 0) + 1 })
@@ -832,7 +1132,7 @@ app.get("/api/knowledge-base/:id", async (req, res) => {
 
 /**
  * POST /api/knowledge-base
- * Buat artikel KB baru (admin only)
+ * Buat artikel KB baru
  */
 app.post(
   "/api/knowledge-base",
@@ -875,7 +1175,7 @@ app.post(
 
 /**
  * PUT /api/knowledge-base/:id
- * Update artikel KB (admin only)
+ * Update artikel KB
  */
 app.put(
   "/api/knowledge-base/:id",
@@ -956,7 +1256,6 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
   try {
     let ticketQuery = supabase.from("tickets").select("*");
 
-    // Filter by role
     if (req.user.role === "pengguna") {
       ticketQuery = ticketQuery.eq("reporter_id", req.user.id);
     } else if (req.user.role === "teknisi") {
@@ -967,7 +1266,6 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
 
     const { data: tickets } = await ticketQuery;
 
-    // Hitung statistik
     const stats = {
       total_tickets: tickets.length,
       open: tickets.filter((t) => t.status === "open").length,
@@ -987,7 +1285,6 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
       },
     };
 
-    // SLA Compliance
     const resolvedTickets = tickets.filter(
       (t) => t.status === "resolved" || t.status === "closed"
     );
@@ -1039,7 +1336,6 @@ app.get(
         .order("created_at", { ascending: false })
         .limit(limit);
 
-      // Filter by role
       if (req.user.role === "pengguna") {
         query = query.eq("reporter_id", req.user.id);
       } else if (req.user.role === "teknisi") {
@@ -1089,7 +1385,6 @@ app.get(
       const { data: tickets, error } = await query;
       if (error) throw error;
 
-      // Hitung compliance per priority
       const byPriority = {
         low: { total: 0, breached: 0, compliance: 0 },
         medium: { total: 0, breached: 0, compliance: 0 },
@@ -1169,7 +1464,7 @@ app.get("/api/opd", authenticateToken, async (req, res) => {
 
 /**
  * POST /api/opd
- * Buat OPD baru (admin_kota only)
+ * Buat OPD baru
  */
 app.post(
   "/api/opd",
@@ -1271,7 +1566,467 @@ app.put("/api/notifications/:id/read", authenticateToken, async (req, res) => {
 });
 
 // ============================================
-// 8. HEALTH CHECK
+// 8. INTEGRATION ENDPOINTS
+// ============================================
+
+/**
+ * POST /api/integration/tickets/:id/link-asset
+ * Link ticket ke aset
+ */
+app.post(
+  "/api/integration/tickets/:id/link-asset",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { asset_id, asset_name, description } = req.body;
+
+      if (!asset_id || !asset_name) {
+        return res.status(400).json({ error: "Asset ID dan nama harus diisi" });
+      }
+
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("id")
+        .eq("id", req.params.id)
+        .single();
+
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket tidak ditemukan" });
+      }
+
+      const { data, error } = await supabase
+        .from("ticket_asset_links")
+        .insert({
+          ticket_id: req.params.id,
+          asset_id,
+          asset_name,
+          description: description || null,
+          linked_by: req.user.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await logTicketActivity(
+        req.params.id,
+        req.user.id,
+        "link_asset",
+        `Asset linked: ${asset_name} (${asset_id})`
+      );
+
+      res.json({
+        success: true,
+        message: "Asset berhasil di-link ke ticket",
+        link: data,
+      });
+    } catch (error) {
+      console.error("Link asset error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+/**
+ * GET /api/integration/tickets/:id/assets
+ * Get semua asset yang linked ke ticket
+ */
+app.get(
+  "/api/integration/tickets/:id/assets",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("ticket_asset_links")
+        .select(
+          `
+          *,
+          linked_by_user:linked_by(id, username, full_name)
+        `
+        )
+        .eq("ticket_id", req.params.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        count: data.length,
+        assets: data,
+      });
+    } catch (error) {
+      console.error("Get linked assets error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+/**
+ * POST /api/integration/tickets/:id/create-change
+ * Buat Change Request dari ticket
+ */
+app.post(
+  "/api/integration/tickets/:id/create-change",
+  authenticateToken,
+  authorizeRole("admin_kota", "admin_opd", "teknisi"),
+  async (req, res) => {
+    try {
+      const {
+        change_type,
+        title,
+        impact,
+        rollback_plan,
+        schedule_start,
+        affected_ci_ids,
+      } = req.body;
+
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("id", req.params.id)
+        .single();
+
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket tidak ditemukan" });
+      }
+
+      const changeNumber = `CHG-${new Date().getFullYear()}-${Math.floor(
+        Math.random() * 10000
+      )
+        .toString()
+        .padStart(4, "0")}`;
+
+      const { data, error } = await supabase
+        .from("ticket_change_links")
+        .insert({
+          ticket_id: ticket.id,
+          change_id: changeNumber,
+          change_number: changeNumber,
+          status: "pending",
+          created_by: req.user.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await logTicketActivity(
+        ticket.id,
+        req.user.id,
+        "create_change",
+        `Change Request created: ${changeNumber}`
+      );
+
+      res.json({
+        success: true,
+        message: "Change Request berhasil dibuat dari ticket",
+        change: {
+          change_number: changeNumber,
+          ticket_id: ticket.id,
+          ticket_number: ticket.ticket_number,
+          status: "pending",
+          created_at: new Date(),
+        },
+        link: data,
+      });
+    } catch (error) {
+      console.error("Create change error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+/**
+ * GET /api/integration/tickets/:id/changes
+ * Get semua change request yang terkait dengan ticket
+ */
+app.get(
+  "/api/integration/tickets/:id/changes",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("ticket_change_links")
+        .select(
+          `
+          *,
+          created_by_user:created_by(id, username, full_name)
+        `
+        )
+        .eq("ticket_id", req.params.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        count: data.length,
+        changes: data,
+      });
+    } catch (error) {
+      console.error("Get linked changes error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+/**
+ * GET /api/integration/tickets/:id/related
+ * Get semua data terkait (assets + changes)
+ */
+app.get(
+  "/api/integration/tickets/:id/related",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { data: assets } = await supabase
+        .from("ticket_asset_links")
+        .select("*")
+        .eq("ticket_id", req.params.id);
+
+      const { data: changes } = await supabase
+        .from("ticket_change_links")
+        .select("*")
+        .eq("ticket_id", req.params.id);
+
+      res.json({
+        success: true,
+        related: {
+          assets: assets || [],
+          changes: changes || [],
+          asset_count: assets ? assets.length : 0,
+          change_count: changes ? changes.length : 0,
+        },
+      });
+    } catch (error) {
+      console.error("Get related data error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+// ============================================
+// 9. WEBHOOK RECEIVERS
+// ============================================
+
+/**
+ * POST /api/webhooks/asset-status-changed
+ * Webhook dari Asset Management
+ */
+app.post("/api/webhooks/asset-status-changed", async (req, res) => {
+  try {
+    const webhookSecret = req.headers["x-webhook-secret"];
+    if (webhookSecret !== WEBHOOK_SECRET) {
+      return res.status(401).json({ error: "Unauthorized webhook" });
+    }
+
+    const { asset_id, old_status, new_status, changed_by } = req.body;
+
+    const { data: links } = await supabase
+      .from("ticket_asset_links")
+      .select(
+        `
+        ticket_id,
+        tickets (
+          id,
+          ticket_number,
+          status,
+          reporter_id
+        )
+      `
+      )
+      .eq("asset_id", asset_id);
+
+    if (links && links.length > 0) {
+      for (const link of links) {
+        const ticket = link.tickets;
+
+        if (["open", "in_progress"].includes(ticket.status)) {
+          await supabase.from("ticket_comments").insert({
+            ticket_id: ticket.id,
+            user_id: null,
+            content: `🔔 Asset status changed: ${old_status} → ${new_status}`,
+          });
+
+          await logTicketActivity(
+            ticket.id,
+            null,
+            "asset_update",
+            `Asset ${asset_id} status changed to ${new_status}`
+          );
+
+          if (
+            new_status === "operational" ||
+            new_status === "fixed" ||
+            new_status === "active"
+          ) {
+            await sendNotification(
+              ticket.reporter_id,
+              "Asset Terkait Sudah Diperbaiki",
+              `Asset terkait ticket ${ticket.ticket_number} sudah diperbaiki. Silakan verifikasi dan close ticket jika masalah sudah selesai.`,
+              "success"
+            );
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Webhook processed",
+      affected_tickets: links ? links.length : 0,
+    });
+  } catch (error) {
+    console.error("Webhook error:", error);
+    res.status(500).json({ error: "Webhook processing failed" });
+  }
+});
+
+/**
+ * POST /api/webhooks/change-completed
+ * Webhook dari Change Management
+ */
+app.post("/api/webhooks/change-completed", async (req, res) => {
+  try {
+    const webhookSecret = req.headers["x-webhook-secret"];
+    if (webhookSecret !== WEBHOOK_SECRET) {
+      return res.status(401).json({ error: "Unauthorized webhook" });
+    }
+
+    const { change_id, change_number, status, result } = req.body;
+
+    const { data: link } = await supabase
+      .from("ticket_change_links")
+      .select(
+        `
+        *,
+        tickets (*)
+      `
+      )
+      .eq("change_id", change_id)
+      .single();
+
+    if (link) {
+      const ticket = link.tickets;
+
+      await supabase
+        .from("ticket_change_links")
+        .update({ status: status })
+        .eq("id", link.id);
+
+      await supabase.from("ticket_comments").insert({
+        ticket_id: ticket.id,
+        user_id: null,
+        content: `🔧 Change Request ${change_number} ${status}: ${result}`,
+      });
+
+      if (status === "completed" && result === "success") {
+        if (["open", "in_progress"].includes(ticket.status)) {
+          await supabase
+            .from("tickets")
+            .update({
+              status: "resolved",
+              resolved_at: new Date(),
+              resolution: `Resolved via Change Request ${change_number}`,
+            })
+            .eq("id", ticket.id);
+
+          await sendNotification(
+            ticket.reporter_id,
+            "Ticket Resolved",
+            `Ticket ${ticket.ticket_number} telah di-resolve melalui Change Request ${change_number}`,
+            "success"
+          );
+
+          await logTicketActivity(
+            ticket.id,
+            null,
+            "auto_resolve",
+            `Auto-resolved via Change Request ${change_number}`
+          );
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Webhook processed",
+    });
+  } catch (error) {
+    console.error("Webhook error:", error);
+    res.status(500).json({ error: "Webhook processing failed" });
+  }
+});
+
+/**
+ * POST /api/webhooks/high-risk-asset
+ * Webhook untuk asset berisiko tinggi
+ */
+app.post("/api/webhooks/high-risk-asset", async (req, res) => {
+  try {
+    const webhookSecret = req.headers["x-webhook-secret"];
+    if (webhookSecret !== WEBHOOK_SECRET) {
+      return res.status(401).json({ error: "Unauthorized webhook" });
+    }
+
+    const { asset_id, asset_name, risk_level, risk_description, opd_id } =
+      req.body;
+
+    const ticketNumber = generateTicketNumber("incident");
+
+    const { data: ticket } = await supabase
+      .from("tickets")
+      .insert({
+        ticket_number: ticketNumber,
+        type: "incident",
+        title: `⚠️ High Risk Asset Alert: ${asset_name}`,
+        description: `Asset ${asset_name} has been flagged as high-risk.\n\nRisk Level: ${risk_level}\nRisk Details:\n${risk_description}\n\nPreventive action required.`,
+        priority: "high",
+        category: "Preventive Maintenance",
+        status: "open",
+        reporter_id: 1,
+        opd_id: opd_id,
+        created_at: new Date(),
+      })
+      .select()
+      .single();
+
+    await supabase.from("ticket_asset_links").insert({
+      ticket_id: ticket.id,
+      asset_id,
+      asset_name,
+      description: "Auto-linked from risk alert",
+      linked_by: 1,
+    });
+
+    const { data: admins } = await supabase
+      .from("users")
+      .select("id")
+      .eq("role", "admin_opd")
+      .eq("opd_id", opd_id);
+
+    for (const admin of admins || []) {
+      await sendNotification(
+        admin.id,
+        "High-Risk Asset Detected",
+        `High-risk asset detected: ${asset_name}. Preventive maintenance ticket created: ${ticketNumber}`,
+        "warning"
+      );
+    }
+
+    res.json({
+      success: true,
+      message: "Preventive ticket created",
+      ticket: ticket,
+    });
+  } catch (error) {
+    console.error("Webhook error:", error);
+    res.status(500).json({ error: "Webhook processing failed" });
+  }
+});
+
+// ============================================
+// 10. HEALTH CHECK
 // ============================================
 
 /**
@@ -1280,13 +2035,13 @@ app.put("/api/notifications/:id/read", authenticateToken, async (req, res) => {
  */
 app.get("/health", async (req, res) => {
   try {
-    // Test database connection
     const { error } = await supabase.from("users").select("count").limit(1);
 
     res.json({
       status: error ? "unhealthy" : "healthy",
       timestamp: new Date().toISOString(),
       database: error ? "error" : "connected",
+      uptime: process.uptime(),
     });
   } catch (error) {
     res.status(503).json({
@@ -1303,7 +2058,7 @@ app.get("/health", async (req, res) => {
 
 app.get("/", (req, res) => {
   res.json({
-    message: "Service Desk API - Versi Sederhana",
+    message: "Service Desk API - Complete Version",
     version: "1.0.0",
     endpoints: {
       auth: {
@@ -1318,6 +2073,7 @@ app.get("/", (req, res) => {
         update: "PUT /api/tickets/:id",
         assign: "POST /api/tickets/:id/assign",
         comment: "POST /api/tickets/:id/comments",
+        escalate: "POST /api/tickets/:id/escalate",
       },
       users: {
         list: "GET /api/users",
@@ -1346,8 +2102,21 @@ app.get("/", (req, res) => {
         list: "GET /api/notifications",
         mark_read: "PUT /api/notifications/:id/read",
       },
+      integration: {
+        link_asset: "POST /api/integration/tickets/:id/link-asset",
+        get_assets: "GET /api/integration/tickets/:id/assets",
+        create_change: "POST /api/integration/tickets/:id/create-change",
+        get_changes: "GET /api/integration/tickets/:id/changes",
+        get_related: "GET /api/integration/tickets/:id/related",
+      },
+      webhooks: {
+        asset_status: "POST /api/webhooks/asset-status-changed",
+        change_completed: "POST /api/webhooks/change-completed",
+        high_risk_asset: "POST /api/webhooks/high-risk-asset",
+      },
     },
     health: "/health",
+    docs: "/api-docs",
   });
 });
 
@@ -1370,13 +2139,12 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`
 
-SERVICE DESK API 
+SERVICE DESK API
 
-Port: ${PORT} 
+Port: ${PORT}
 Status: ✅ Running
 API Docs: http://localhost:${PORT}/api-docs
-Health: http://localhost:${PORT}/health
-
+Health: http://localhost:${PORT}/health 
   `);
 });
 
