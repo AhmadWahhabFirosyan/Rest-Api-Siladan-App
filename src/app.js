@@ -1,38 +1,26 @@
-/**
- * ============================================
- * SERVICE DESK API
- * ============================================
- * Fitur Utama:
- * 1. Authentication (Login/Register)
- * 2. Ticket Management (CRUD)
- * 3. User Management
- * 4. Knowledge Base
- * 5. Dashboard & Reports
- * 6. Integration (Asset & Change Management)
- * 7. Webhooks
- * 8. Notifications
- * ============================================
- */
-
+// ===========================================
+// 1. SETUP & IMPORT
+// ===========================================
 const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
+const multer = require("multer");
+const crypto = require("crypto");
 const swaggerUi = require("swagger-ui-express");
 const { swaggerDocs, swaggerUiOptions } = require("./swagger.js");
-const crypto = require("crypto");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-
-// ============================================
-// MIDDLEWARE
-// ============================================
-app.use(cors());
-app.use(express.json());
-
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Welcome to the jungle Chiboy and Darren",
+    version: "1.0.0",
+  });
+});
 // Swagger UI
 app.use(
   "/api-docs",
@@ -40,73 +28,14 @@ app.use(
   swaggerUi.setup(swaggerDocs, swaggerUiOptions)
 );
 
-// ============================================
-// SUPABASE CONNECTION
-// ============================================
+// ===========================================
+// 2. SUPABASE CONNECTION
+// ===========================================
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
-
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
-
-// SSO Configuration
-const SSO_CONFIG = {
-  enabled: process.env.SSO_ENABLED === 'true',
-  domain: process.env.SSO_DOMAIN || 'company.com',
-  redirectUrl: process.env.SSO_REDIRECT_URL || 'http://localhost:8080/api/auth/sso/callback',
-  metadataUrl: process.env.SSO_METADATA_URL,
-  attributeMapping: {
-    email: 'email',
-    firstName: 'givenName',
-    lastName: 'surname',
-    department: 'department',
-    role: 'role'
-  }
-};
-
-// RBAC Configuration
-const RBAC_ROLES = {
-  'super_admin': {
-    permissions: ['*'], // All permissions
-    description: 'Super Administrator'
-  },
-  'admin_kota': {
-    permissions: [
-      'tickets.read', 'tickets.write', 'tickets.delete',
-      'users.read', 'users.write', 'users.delete',
-      'knowledge_base.read', 'knowledge_base.write', 'knowledge_base.delete',
-      'reports.read', 'dashboard.read'
-    ],
-    description: 'Administrator Kota'
-  },
-  'admin_opd': {
-    permissions: [
-      'tickets.read', 'tickets.write',
-      'users.read', 'users.write',
-      'knowledge_base.read', 'knowledge_base.write',
-      'reports.read', 'dashboard.read'
-    ],
-    description: 'Administrator OPD'
-  },
-  'agent': {
-    permissions: [
-      'tickets.read', 'tickets.write',
-      'knowledge_base.read',
-      'dashboard.read'
-    ],
-    description: 'Service Desk Agent'
-  },
-  'user': {
-    permissions: [
-      'tickets.read', 'tickets.write',
-      'knowledge_base.read'
-    ],
-    description: 'End User'
-  }
-};
-const WEBHOOK_SECRET =
-  process.env.WEBHOOK_SECRET || "webhook-secret-change-this";
 
 // Test connection
 (async () => {
@@ -119,12 +48,233 @@ const WEBHOOK_SECRET =
   }
 })();
 
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
+// ===========================================
+// 3. MIDDLEWARE GLOBAL
+// ===========================================
+app.use(cors());
+app.use(express.json());
 
-// Middleware untuk autentikasi
-const authenticateToken = (req, res, next) => {
+// File upload configuration
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|pdf|doc|docx|xls|xlsx/;
+    const extname = allowedTypes.test(file.originalname.toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    if (extname && mimetype) return cb(null, true);
+    cb(new Error("Invalid file type"));
+  },
+});
+
+// ===========================================
+// 4. RBAC CONFIGURATION
+// ===========================================
+const RBAC_ROLES = {
+  super_admin: { permissions: ["*"], description: "Super Administrator" },
+  admin_kota: {
+    permissions: [
+      "tickets.*",
+      "users.*",
+      "opd.*",
+      "reports.*",
+      "dashboard.*",
+      "kb.*",
+      "catalog.*",
+      "skills.*",
+    ],
+    description: "Administrator Kota",
+  },
+  admin_opd: {
+    permissions: [
+      "tickets.read",
+      "tickets.write",
+      "tickets.assign",
+      "users.read",
+      "users.write",
+      "kb.*",
+      "reports.read",
+      "dashboard.read",
+    ],
+    description: "Administrator OPD",
+  },
+  bidang: {
+    permissions: [
+      "tickets.read",
+      "tickets.write",
+      "tickets.verify",
+      "dashboard.read",
+    ],
+    description: "Kepala Bidang - Verifier",
+  },
+  seksi: {
+    permissions: [
+      "tickets.read",
+      "tickets.write",
+      "tickets.assign",
+      "dashboard.read",
+    ],
+    description: "Kepala Seksi - Recorder",
+  },
+  teknisi: {
+    permissions: [
+      "tickets.read",
+      "tickets.write",
+      "tickets.update_progress",
+      "kb.read",
+      "dashboard.read",
+    ],
+    description: "Teknisi - Handler",
+  },
+  pengguna: {
+    permissions: ["tickets.read", "tickets.create", "kb.read"],
+    description: "End User",
+  },
+};
+
+// ===========================================
+// 5. HELPER FUNCTIONS
+// ===========================================
+
+const calculatePriority = (urgency, impact) => {
+  const score = urgency * impact;
+  let category;
+  if (score >= 1 && score <= 5) category = "low";
+  else if (score >= 6 && score <= 10) category = "medium";
+  else if (score >= 11 && score <= 15) category = "high";
+  else category = "major";
+  return { score, category };
+};
+
+const generateTicketNumber = (type) => {
+  const prefix = type === "incident" ? "INC" : "REQ";
+  const year = new Date().getFullYear();
+  const random = Math.floor(Math.random() * 10000)
+    .toString()
+    .padStart(4, "0");
+  return `${prefix}-${year}-${random}`;
+};
+
+// --- KODE PERBAIKAN ---
+const calculateSLADue = async (priority, opdId, startTime) => {
+  try {
+    const { data: sla } = await supabase
+      .from("sla")
+      .select("resolution_time")
+      .eq("opd_id", opdId)
+      .eq("priority", priority)
+      .single();
+
+    // PERBAIKAN: Cek jika sla null ATAU jika resolution_time-nya null
+    if (!sla || !sla.resolution_time) {
+      console.warn(
+        `PERINGATAN: Konfigurasi SLA tidak ditemukan untuk opd_id: ${opdId}, priority: ${priority}. Menggunakan default null.`
+      );
+      // Selalu kembalikan OBJEK, bukan 'null', agar ...spread tidak error
+      return {
+        sla_due: null,
+        sla_target_date: null,
+        sla_target_time: null,
+      };
+    }
+
+    const dueDate = new Date(
+      startTime.getTime() + sla.resolution_time * 60 * 60 * 1000
+    );
+    return {
+      sla_due: dueDate,
+      sla_target_date: dueDate.toISOString().split("T")[0],
+      sla_target_time: dueDate.toTimeString().split(" ")[0],
+    };
+  } catch (error) {
+    console.error("Error calculating SLA:", error);
+    // Selalu kembalikan OBJEK jika terjadi error
+    return {
+      sla_due: null,
+      sla_target_date: null,
+      sla_target_time: null,
+    };
+  }
+};
+
+const logTicketActivity = async (
+  ticketId,
+  userId,
+  action,
+  description,
+  oldValue = null,
+  newValue = null
+) => {
+  try {
+    await supabase.from("ticket_logs").insert({
+      ticket_id: ticketId,
+      user_id: userId,
+      action,
+      description,
+      old_value: oldValue,
+      new_value: newValue,
+    });
+  } catch (error) {
+    console.error("Error logging activity:", error);
+  }
+};
+
+const sendNotification = async (
+  userId,
+  title,
+  message,
+  type = "info",
+  ticketId = null
+) => {
+  try {
+    await supabase.from("notifications").insert({
+      user_id: userId,
+      title,
+      message,
+      type,
+      related_ticket_id: ticketId,
+    });
+  } catch (error) {
+    console.error("Error sending notification:", error);
+  }
+};
+
+const uploadFile = async (file, ticketNumber, uploadType) => {
+  try {
+    const fileName = `${ticketNumber}/${uploadType}_${Date.now()}_${
+      file.originalname
+    }`;
+    const { data, error } = await supabase.storage
+      .from("siladan-bucket")
+      .upload(fileName, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+      });
+
+    if (error) throw error;
+
+    const { data: publicUrl } = supabase.storage
+      .from("siladan-bucket")
+      .getPublicUrl(fileName);
+
+    return {
+      file_name: file.originalname,
+      file_url: publicUrl.publicUrl,
+      file_type: file.mimetype,
+      file_size: file.size,
+    };
+  } catch (error) {
+    console.error("File upload error:", error);
+    throw error;
+  }
+};
+
+// ===========================================
+// 6. MIDDLEWARE AUTHENTICATION & AUTHORIZATION
+// ===========================================
+
+const authenticate = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
@@ -141,28 +291,22 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Middleware untuk cek role
-const authorizeRole = (...roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: "Akses ditolak" });
-    }
-    next();
-  };
-};
-
-// Middleware untuk cek permission
-const authorizePermission = (permission) => {
+const authorize = (permission) => {
   return (req, res, next) => {
     const userRole = req.user.role;
     const roleConfig = RBAC_ROLES[userRole];
-    
+
     if (!roleConfig) {
       return res.status(403).json({ error: "Role tidak valid" });
     }
-    
-    // Check if user has permission or wildcard permission
-    if (roleConfig.permissions.includes('*') || roleConfig.permissions.includes(permission)) {
+
+    if (
+      roleConfig.permissions.includes("*") ||
+      roleConfig.permissions.includes(permission) ||
+      roleConfig.permissions.some(
+        (p) => p.endsWith(".*") && permission.startsWith(p.replace(".*", ""))
+      )
+    ) {
       next();
     } else {
       return res.status(403).json({ error: "Permission tidak cukup" });
@@ -170,283 +314,16 @@ const authorizePermission = (permission) => {
   };
 };
 
-// SSO Authentication middleware
-const authenticateSSO = async (req, res, next) => {
-  try {
-    if (!SSO_CONFIG.enabled) {
-      return res.status(400).json({ error: "SSO tidak diaktifkan" });
-    }
+// ===========================================
+// 7. ROUTES - RESTRUCTURED
+// ===========================================
+const v1Router = express.Router();
+app.use("/api/v1", v1Router);
 
-    const { domain } = req.body;
-    
-    if (!domain) {
-      return res.status(400).json({ error: "Domain diperlukan untuk SSO" });
-    }
-
-    // Generate state parameter for security
-    const state = crypto.randomBytes(32).toString('hex');
-    
-    // Store state in session or database for validation
-    req.session = req.session || {};
-    req.session.ssoState = state;
-    
-    // Redirect to Supabase SSO
-    const ssoUrl = `${process.env.SUPABASE_URL}/auth/v1/sso/saml/acs?domain=${domain}&state=${state}`;
-    
-    res.json({
-      success: true,
-      redirectUrl: ssoUrl,
-      state: state
-    });
-  } catch (error) {
-    console.error("SSO Authentication error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan pada SSO authentication" });
-  }
-};
-
-// SSO Callback handler
-const handleSSOCallback = async (req, res) => {
-  try {
-    const { code, state } = req.query;
-    
-    if (!code) {
-      return res.status(400).json({ error: "Authorization code tidak ditemukan" });
-    }
-
-    // Exchange code for session
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-    
-    if (error) {
-      console.error("SSO Callback error:", error);
-      return res.status(400).json({ error: "Gagal menukar kode untuk session" });
-    }
-
-    const { user, session } = data;
-    
-    if (!user || !session) {
-      return res.status(400).json({ error: "User atau session tidak ditemukan" });
-    }
-
-    // Extract user information from SSO
-    const userMetadata = user.user_metadata || {};
-    const email = user.email;
-    const firstName = userMetadata.first_name || userMetadata.givenName || '';
-    const lastName = userMetadata.last_name || userMetadata.surname || '';
-    const department = userMetadata.department || '';
-    const ssoRole = userMetadata.role || 'user';
-
-    // Check if user exists in local database
-    let { data: existingUser, error: userError } = await supabase
-      .from("users")
-      .select("*")
-      .eq("email", email)
-      .single();
-
-    let userId;
-    let userRole = ssoRole;
-
-    if (userError && userError.code === 'PGRST116') {
-      // User doesn't exist, create new user
-      const { data: newUser, error: createError } = await supabase
-        .from("users")
-        .insert({
-          username: email.split('@')[0],
-          email: email,
-          full_name: `${firstName} ${lastName}`.trim() || email.split('@')[0],
-          role: userRole,
-          opd_id: null,
-          sso_provider: 'saml',
-          sso_id: user.id,
-          department: department,
-          is_active: true
-        })
-        .select()
-        .single();
-
-      if (createError) {
-        console.error("Create user error:", createError);
-        return res.status(500).json({ error: "Gagal membuat user baru" });
-      }
-
-      userId = newUser.id;
-      existingUser = newUser;
-    } else if (userError) {
-      console.error("User lookup error:", userError);
-      return res.status(500).json({ error: "Terjadi kesalahan saat mencari user" });
-    } else {
-      // User exists, update SSO information
-      userId = existingUser.id;
-      
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          sso_provider: 'saml',
-          sso_id: user.id,
-          department: department,
-          last_login: new Date()
-        })
-        .eq("id", userId);
-
-      if (updateError) {
-        console.error("Update user error:", updateError);
-      }
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      {
-        id: userId,
-        email: email,
-        role: userRole,
-        permissions: RBAC_ROLES[userRole]?.permissions || [],
-        sso: true
-      },
-      JWT_SECRET,
-      { expiresIn: "24h" }
-    );
-
-    res.json({
-      success: true,
-      message: "SSO login berhasil",
-      token: token,
-      user: {
-        id: userId,
-        email: email,
-        full_name: existingUser.full_name,
-        role: userRole,
-        department: department,
-        permissions: RBAC_ROLES[userRole]?.permissions || []
-      }
-    });
-
-  } catch (error) {
-    console.error("SSO Callback error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-};
-
-// Generate ticket number
-const generateTicketNumber = (type) => {
-  const prefix = type === "incident" ? "INC" : "REQ";
-  const year = new Date().getFullYear();
-  const random = Math.floor(Math.random() * 10000)
-    .toString()
-    .padStart(4, "0");
-  return `${prefix}-${year}-${random}`;
-};
-
-// Hitung SLA due date
-const calculateSLADue = async (priority, opdId) => {
-  try {
-    const { data: sla } = await supabase
-      .from("sla")
-      .select("resolution_time")
-      .eq("opd_id", opdId)
-      .eq("priority", priority)
-      .single();
-
-    if (!sla) return null;
-
-    const now = new Date();
-    const dueDate = new Date(
-      now.getTime() + sla.resolution_time * 60 * 60 * 1000
-    );
-    return dueDate;
-  } catch (error) {
-    console.error("Error calculating SLA:", error);
-    return null;
-  }
-};
-
-// Log aktivitas ticket
-const logTicketActivity = async (ticketId, userId, action, description) => {
-  try {
-    await supabase.from("ticket_logs").insert({
-      ticket_id: ticketId,
-      user_id: userId,
-      action: action,
-      description: description,
-    });
-  } catch (error) {
-    console.error("Error logging activity:", error);
-  }
-};
-
-// Send notification helper
-const sendNotification = async (userId, title, message, type = "info") => {
-  try {
-    await supabase.from("notifications").insert({
-      user_id: userId,
-      title,
-      message,
-      type,
-    });
-  } catch (error) {
-    console.error("Error sending notification:", error);
-  }
-};
-
-// ============================================
-// 1. AUTHENTICATION ENDPOINTS
-// ============================================
-
-/**
- * POST /api/auth/register
- * Register user baru
- */
-app.post("/api/auth/register", async (req, res) => {
-  try {
-    const { username, password, email, full_name, role, opd_id } = req.body;
-
-    if (!username || !password || !email || !role) {
-      return res.status(400).json({ error: "Data tidak lengkap" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const { data, error } = await supabase
-      .from("users")
-      .insert({
-        username,
-        password: hashedPassword,
-        email,
-        full_name: full_name || username,
-        role,
-        opd_id: opd_id || null,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      if (error.code === "23505") {
-        return res
-          .status(400)
-          .json({ error: "Username atau email sudah digunakan" });
-      }
-      throw error;
-    }
-
-    res.status(201).json({
-      success: true,
-      message: "Registrasi berhasil",
-      user: {
-        id: data.id,
-        username: data.username,
-        email: data.email,
-        role: data.role,
-      },
-    });
-  } catch (error) {
-    console.error("Register error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-/**
- * POST /api/auth/login
- * Login user
- */
-app.post("/api/auth/login", async (req, res) => {
+// ==========================================
+// 7.1. AUTHENTICATION & PROFILE (/auth)
+// ==========================================
+v1Router.post("/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -482,6 +359,7 @@ app.post("/api/auth/login", async (req, res) => {
         username: user.username,
         role: user.role,
         opd_id: user.opd_id,
+        permissions: RBAC_ROLES[user.role]?.permissions || [],
       },
       JWT_SECRET,
       { expiresIn: "24h" }
@@ -495,8 +373,10 @@ app.post("/api/auth/login", async (req, res) => {
         username: user.username,
         full_name: user.full_name,
         email: user.email,
+        nip: user.nip,
         role: user.role,
         opd_id: user.opd_id,
+        permissions: RBAC_ROLES[user.role]?.permissions || [],
       },
     });
   } catch (error) {
@@ -505,15 +385,93 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-/**
- * GET /api/auth/profile
- * Get profile user yang sedang login
- */
-app.get("/api/auth/profile", authenticateToken, async (req, res) => {
+// ==========================================
+// 7.1. AUTHENTICATION & PROFILE (/auth)
+// ==========================================
+v1Router.post("/auth/register", async (req, res) => {
+  try {
+    // Ambil HANYA data yang diizinkan untuk registrasi publik
+    const {
+      username,
+      password,
+      email,
+      full_name,
+      nip, // Asumsi ini NIK untuk publik, atau NIP jika pegawai
+      phone,
+      address,
+    } = req.body;
+
+    // Hapus 'role' dan 'opd_id' dari req.body jika ada, untuk keamanan
+    // (Meskipun kita tidak akan menggunakannya)
+
+    // Validasi data wajib
+    if (!username || !password || !email || !full_name) {
+      return res.status(400).json({
+        error: "Username, password, email, dan nama lengkap harus diisi",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const { data, error } = await supabase
+      .from("users")
+      .insert({
+        username,
+        password: hashedPassword,
+        email,
+        full_name,
+        nip,
+        phone,
+        address,
+        role: "pengguna", // <--- PERBAIKAN: Hardcode role sebagai 'pengguna'
+        opd_id: null, // <--- PERBAIKAN: Hardcode opd_id sebagai null
+        bidang_id: null, // <--- PERBAIKAN: Hardcode
+        seksi_id: null, // <--- PERBAIKAN: Hardcode
+        is_active: true, // <--- PERBAIKAN: Akun publik bisa langsung aktif
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        return res
+          .status(400)
+          .json({ error: "Username atau email sudah digunakan" });
+      }
+      throw error;
+    }
+
+    // Hapus password dari respons
+    delete data.password;
+
+    res.status(201).json({
+      success: true,
+      message: "Registrasi publik berhasil",
+      user: data,
+    });
+  } catch (error) {
+    console.error("Register error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+v1Router.post("/auth/logout", authenticate, async (req, res) => {
+  res.json({ success: true, message: "Logout berhasil" });
+});
+
+v1Router.get("/auth/me", authenticate, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("users")
-      .select("id, username, email, full_name, phone, role, opd_id, created_at")
+      .select(
+        `
+        id, username, email, full_name, nip, phone, address, role,
+        opd:opd_id(id, name, code),
+        bidang:bidang_id(id, name),
+        seksi:seksi_id(id, name),
+        created_at
+      `
+      )
       .eq("id", req.user.id)
       .single();
 
@@ -526,256 +484,548 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// ============================================
-// 2. TICKET MANAGEMENT
-// ============================================
-
-/**
- * POST /api/tickets
- * Buat tiket baru
- */
-app.post("/api/tickets", authenticateToken, async (req, res) => {
+v1Router.put("/auth/me", authenticate, async (req, res) => {
   try {
-    const { type, title, description, priority, category, opd_id } = req.body;
+    const { full_name, phone, address } = req.body;
 
-    if (!type || !title || !description || !priority) {
-      return res.status(400).json({ error: "Data tidak lengkap" });
-    }
+    const updateData = {};
+    if (full_name) updateData.full_name = full_name;
+    if (phone) updateData.phone = phone;
+    if (address) updateData.address = address;
 
-    const ticketNumber = generateTicketNumber(type);
-    const slaDue = await calculateSLADue(priority, opd_id || req.user.opd_id);
-
-    const { data: ticket, error } = await supabase
-      .from("tickets")
-      .insert({
-        ticket_number: ticketNumber,
-        type,
-        title,
-        description,
-        priority,
-        category: category || "Umum",
-        opd_id: opd_id || req.user.opd_id,
-        reporter_id: req.user.id,
-        status: "open",
-        sla_due: slaDue,
-      })
+    const { data, error } = await supabase
+      .from("users")
+      .update(updateData)
+      .eq("id", req.user.id)
       .select()
       .single();
 
     if (error) throw error;
 
-    await logTicketActivity(
-      ticket.id,
-      req.user.id,
-      "create",
-      `Tiket dibuat: ${ticket.ticket_number}`
-    );
-
-    res.status(201).json({
+    res.json({
       success: true,
-      message: "Tiket berhasil dibuat",
-      ticket,
+      message: "Profil berhasil diperbarui",
+      user: data,
     });
   } catch (error) {
-    console.error("Create ticket error:", error);
+    console.error("Update profile error:", error);
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
 
-/**
- * GET /api/tickets
- * Get daftar tiket dengan filter
- */
-app.get("/api/tickets", authenticateToken, async (req, res) => {
+v1Router.post("/auth/forgot-password", async (req, res) => {
   try {
-    const { status, priority, type, search } = req.query;
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email harus diisi" });
+    }
+
+    const { data: user } = await supabase
+      .from("users")
+      .select("id, email")
+      .eq("email", email)
+      .single();
+
+    if (!user) {
+      return res.json({
+        success: true,
+        message: "Jika email terdaftar, link reset password akan dikirim",
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+
+    await supabase.from("password_reset_tokens").insert({
+      user_id: user.id,
+      token: hashedToken,
+      expires_at: new Date(Date.now() + 3600000), // 1 hour
+    });
+
+    // TODO: Send email with reset link
+    console.log(`Reset token for ${email}: ${resetToken}`);
+
+    res.json({
+      success: true,
+      message: "Link reset password telah dikirim ke email Anda",
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.2. INCIDENT MANAGEMENT (/incidents)
+// ==========================================
+v1Router.post(
+  "/incidents",
+  authenticate,
+  authorize("tickets.create"),
+  async (req, res) => {
+    // ... di dalam v1Router.post("/incidents", ...)
+    try {
+      const {
+        title,
+        description,
+        category,
+        // urgency dan impact dihapus dari sini
+        incident_location,
+        incident_date,
+        opd_id,
+      } = req.body;
+
+      if (!title || !description) {
+        return res.status(400).json({ error: "Data tidak lengkap" });
+      }
+
+      // --- PERBAIKAN LOGIKA ---
+      // Sesuai alur bisnis, pelapor tidak menentukan prioritas.
+      // Kita atur default (misal: 3 = Medium), nanti Seksi yang akan mengklasifikasi.
+      const urgencyVal = 3;
+      const impactVal = 3;
+      // --- AKHIR PERBAIKAN ---
+
+      const { score: priorityScore, category: priorityCategory } =
+        calculatePriority(urgencyVal, impactVal);
+
+      const ticketNumber = generateTicketNumber("incident");
+      const targetOpdId = opd_id || req.user.opd_id;
+
+      const slaData = await calculateSLADue(
+        priorityCategory,
+        targetOpdId,
+        new Date()
+      );
+
+      const { data: reporter } = await supabase
+        .from("users")
+        .select("nip")
+        .eq("id", req.user.id)
+        .single();
+
+      const { data: ticket, error } = await supabase
+        .from("tickets")
+        .insert({
+          ticket_number: ticketNumber,
+          type: "incident",
+          title,
+          description,
+          urgency: urgencyVal,
+          impact: impactVal,
+          priority_score: priorityScore,
+          priority: priorityCategory,
+          category: category || "Umum",
+          incident_location,
+          incident_date,
+          opd_id: targetOpdId,
+          reporter_id: req.user.id,
+          reporter_nip: reporter?.nip,
+          status: "open",
+          ...slaData,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await logTicketActivity(
+        ticket.id,
+        req.user.id,
+        "create",
+        `Incident created: ${ticketNumber}`
+      );
+
+      res
+        .status(201)
+        .json({ success: true, message: "Incident berhasil dibuat", ticket });
+    } catch (error) {
+      console.error("Create incident error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.post(
+  "/public/incidents",
+  // TANPA authenticate, TANPA authorize
+  async (req, res) => {
+    try {
+      // Ambil payload baru yang sudah diperbaiki
+      const {
+        title,
+        description,
+        category,
+        incident_location,
+        incident_date,
+        opd_id,
+        asset_identifier, // <--- Ini adalah NAMA ASET (teks)
+        // Data Pelapor Publik
+        reporter_name,
+        reporter_email,
+        reporter_phone,
+        reporter_address,
+        reporter_nip, // NIK
+        attachment_url, // <--- Ini adalah URL file yang sudah di-upload
+      } = req.body;
+
+      // Validasi ketat
+      if (
+        !title ||
+        !description ||
+        !opd_id ||
+        !reporter_name ||
+        !reporter_email ||
+        !reporter_phone
+      ) {
+        return res.status(400).json({
+          error:
+            "Data insiden dan data pelapor (nama, email, HP, OPD) tidak boleh kosong",
+        });
+      }
+
+      // Default urgency/impact
+      const urgencyVal = 3;
+      const impactVal = 3;
+      const { score: priorityScore, category: priorityCategory } =
+        calculatePriority(urgencyVal, impactVal);
+
+      const ticketNumber = generateTicketNumber("incident");
+
+      // Hitung SLA
+      const slaData = await calculateSLADue(
+        priorityCategory,
+        opd_id,
+        new Date()
+      );
+
+      // Insert ke database dengan kolom baru
+      const { data: ticket, error } = await supabase
+        .from("tickets")
+        .insert({
+          ticket_number: ticketNumber,
+          type: "incident",
+          title,
+          description,
+          urgency: urgencyVal,
+          impact: impactVal,
+          priority_score: priorityScore,
+          priority: priorityCategory,
+          category: category || "Umum",
+          incident_location,
+          incident_date,
+          opd_id: opd_id,
+          reporter_id: null,
+          reporter_nip: reporter_nip || null,
+          status: "open",
+          ...slaData,
+
+          // --- Kolom Baru ---
+          reporter_name: reporter_name,
+          reporter_email: reporter_email,
+          reporter_phone: reporter_phone,
+          reporter_address: reporter_address || null,
+          asset_name_reported: asset_identifier || null, // <--- Menyimpan nama aset (teks)
+          reporter_attachment_url: attachment_url || null, // <--- Menyimpan URL lampiran
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await logTicketActivity(
+        ticket.id,
+        null, // user_id null
+        "create_public",
+        `Public Incident created: ${ticketNumber}`
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Insiden berhasil dilaporkan",
+        ticket: ticket,
+      });
+    } catch (error) {
+      console.error("Create public incident error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.get("/public/opd", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("opd")
+      .select("id, name") // Hanya kirim data yang perlu
+      .eq("is_active", true)
+      .order("name");
+
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (error) {
+    // <--- Ini perbaikannya
+    console.error("Get public OPD error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  } // <--- Ini perbaikannya
+});
+
+v1Router.get("/incidents", authenticate, async (req, res) => {
+  try {
+    const {
+      status,
+      priority,
+      search,
+      opd_id,
+      verification_status,
+      page = 1,
+      limit = 20,
+    } = req.query;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     let query = supabase
       .from("tickets")
       .select(
         `
         *,
-        reporter:reporter_id(id, username, full_name, email),
+        reporter:reporter_id(id, username, full_name, email, nip, phone),
+        recorder:recorder_id(id, username, full_name),
+        verifier:verifier_id(id, username, full_name),
         technician:assigned_to(id, username, full_name),
-        opd:opd_id(id, name)
-      `
+        opd:opd_id(id, name, code)
+      `,
+        { count: "exact" }
       )
-      .order("created_at", { ascending: false });
+      .eq("type", "incident")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + parseInt(limit) - 1);
 
+    // Role-based filtering
     if (req.user.role === "pengguna") {
       query = query.eq("reporter_id", req.user.id);
     } else if (req.user.role === "teknisi") {
       query = query.eq("assigned_to", req.user.id);
-    } else if (req.user.role === "admin_opd") {
+    } else if (["admin_opd", "bidang", "seksi"].includes(req.user.role)) {
       query = query.eq("opd_id", req.user.opd_id);
     }
 
+    // Filters
     if (status) query = query.eq("status", status);
     if (priority) query = query.eq("priority", priority);
-    if (type) query = query.eq("type", type);
+    if (opd_id) query = query.eq("opd_id", opd_id);
+    if (verification_status)
+      query = query.eq("verification_status", verification_status);
     if (search) {
       query = query.or(
-        `title.ilike.%${search}%,ticket_number.ilike.%${search}%`
+        `title.ilike.%${search}%,ticket_number.ilike.%${search}%,description.ilike.%${search}%`
       );
     }
 
-    const { data, error } = await query;
+    const { data, count, error } = await query;
     if (error) throw error;
 
     res.json({
       success: true,
-      count: data.length,
-      tickets: data,
+      data,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: count,
+        total_pages: Math.ceil(count / parseInt(limit)),
+      },
     });
   } catch (error) {
-    console.error("Get tickets error:", error);
+    console.error("Get incidents error:", error);
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
 
-/**
- * GET /api/tickets/:id
- * Get detail tiket
- */
-app.get("/api/tickets/:id", authenticateToken, async (req, res) => {
-  try {
-    const { data: ticket, error } = await supabase
-      .from("tickets")
-      .select(
-        `
-        *,
-        reporter:reporter_id(id, username, full_name, email, phone),
-        technician:assigned_to(id, username, full_name, phone),
-        opd:opd_id(id, name, code)
-      `
-      )
-      .eq("id", req.params.id)
-      .single();
-
-    if (error) throw error;
-    if (!ticket) {
-      return res.status(404).json({ error: "Tiket tidak ditemukan" });
-    }
-
-    if (req.user.role === "pengguna" && ticket.reporter_id !== req.user.id) {
-      return res.status(403).json({ error: "Akses ditolak" });
-    }
-
-    const { data: comments } = await supabase
-      .from("ticket_comments")
-      .select(
-        `
-        *,
-        user:user_id(id, username, full_name)
-      `
-      )
-      .eq("ticket_id", req.params.id)
-      .order("created_at", { ascending: true });
-
-    const { data: logs } = await supabase
-      .from("ticket_logs")
-      .select(
-        `
-        *,
-        user:user_id(username, full_name)
-      `
-      )
-      .eq("ticket_id", req.params.id)
-      .order("created_at", { ascending: false });
-
-    res.json({
-      success: true,
-      ticket,
-      comments: comments || [],
-      logs: logs || [],
-    });
-  } catch (error) {
-    console.error("Get ticket detail error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-/**
- * PUT /api/tickets/:id
- * Update tiket
- */
-app.put("/api/tickets/:id", authenticateToken, async (req, res) => {
-  try {
-    const { status, priority, category, title, description } = req.body;
-
-    const updateData = { updated_at: new Date() };
-
-    if (status) {
-      updateData.status = status;
-      if (status === "resolved") updateData.resolved_at = new Date();
-      if (status === "closed") updateData.closed_at = new Date();
-    }
-    if (priority) updateData.priority = priority;
-    if (category) updateData.category = category;
-    if (title) updateData.title = title;
-    if (description) updateData.description = description;
-
-    const { data, error } = await supabase
-      .from("tickets")
-      .update(updateData)
-      .eq("id", req.params.id)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    await logTicketActivity(
-      req.params.id,
-      req.user.id,
-      "update",
-      `Tiket diupdate: ${Object.keys(updateData).join(", ")}`
-    );
-
-    res.json({
-      success: true,
-      message: "Tiket berhasil diupdate",
-      ticket: data,
-    });
-  } catch (error) {
-    console.error("Update ticket error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-/**
- * POST /api/tickets/:id/assign
- * Assign teknisi ke tiket
- */
-app.post(
-  "/api/tickets/:id/assign",
-  authenticateToken,
-  authorizeRole("admin_kota", "admin_opd"),
+v1Router.get(
+  "/incidents/:id",
+  authenticate,
+  authorize("tickets.read"),
   async (req, res) => {
     try {
-      const { technician_id } = req.body;
-
-      if (!technician_id) {
-        return res.status(400).json({ error: "ID teknisi harus diisi" });
-      }
-
-      const { data: technician } = await supabase
-        .from("users")
-        .select("id, role")
-        .eq("id", technician_id)
+      const { data: ticket, error } = await supabase
+        .from("tickets")
+        .select(
+          `
+        *,
+        reporter:reporter_id(id, username, full_name, email, nip, phone, address),
+        recorder:recorder_id(id, username, full_name, nip),
+        verifier:verifier_id(id, username, full_name, nip),
+        technician:assigned_to(id, username, full_name, phone, nip),
+        opd:opd_id(id, name, code, address),
+        bidang:bidang_id(id, name),
+        seksi:seksi_id(id, name)
+      `
+        )
+        .eq("id", req.params.id)
+        .eq("type", "incident")
         .single();
 
-      if (!technician || technician.role !== "teknisi") {
-        return res.status(400).json({ error: "User bukan teknisi" });
+      if (error) throw error;
+      if (!ticket) {
+        return res.status(404).json({ error: "Incident tidak ditemukan" });
       }
+
+      // Check access permission
+      if (req.user.role === "pengguna" && ticket.reporter_id !== req.user.id) {
+        return res.status(403).json({ error: "Akses ditolak" });
+      }
+
+      // Get related data
+      const { data: attachments } = await supabase
+        .from("ticket_attachments")
+        .select("*")
+        .eq("ticket_id", req.params.id)
+        .is("progress_update_id", null);
+
+      const { data: progressUpdates } = await supabase
+        .from("ticket_progress_updates")
+        .select(`*, updated_by_user:updated_by(id, username, full_name)`)
+        .eq("ticket_id", req.params.id)
+        .order("update_number");
+
+      const { data: comments } = await supabase
+        .from("ticket_comments")
+        .select(`*, user:user_id(id, username, full_name)`)
+        .eq("ticket_id", req.params.id)
+        .order("created_at");
+
+      const { data: logs } = await supabase
+        .from("ticket_logs")
+        .select(`*, user:user_id(username, full_name)`)
+        .eq("ticket_id", req.params.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      res.json({
+        success: true,
+        ticket,
+        attachments: attachments || [],
+        progress_updates: progressUpdates || [],
+        comments: comments || [],
+        logs: logs || [],
+      });
+    } catch (error) {
+      console.error("Get incident detail error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.put(
+  "/incidents/:id/classify",
+  authenticate,
+  authorize("tickets.write"), // Izin ini dimiliki oleh 'seksi'
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { urgency, impact } = req.body;
+      const userId = req.user.id; // ID dari Seksi yang sedang login
+
+      if (!urgency || !impact) {
+        return res
+          .status(400)
+          .json({ error: "Urgency dan impact harus diisi" });
+      }
+
+      const urgencyVal = parseInt(urgency);
+      const impactVal = parseInt(impact);
+
+      // 1. Ambil data tiket saat ini untuk menghitung ulang SLA
+      const { data: currentTicket, error: getError } = await supabase
+        .from("tickets")
+        .select("opd_id, created_at")
+        .eq("id", id)
+        .single();
+
+      if (getError || !currentTicket) {
+        return res.status(404).json({ error: "Tiket tidak ditemukan" });
+      }
+
+      // 2. Hitung prioritas baru
+      const { score: priorityScore, category: priorityCategory } =
+        calculatePriority(urgencyVal, impactVal);
+
+      // 3. Hitung ulang SLA berdasarkan prioritas baru
+      // PENTING: Waktu mulai SLA tetap dihitung dari 'created_at' tiket
+      const slaData = await calculateSLADue(
+        priorityCategory,
+        currentTicket.opd_id,
+        new Date(currentTicket.created_at) // Gunakan waktu tiket dibuat
+      );
+
+      // 4. Update tiket di database
+      const { data: updatedTicket, error: updateError } = await supabase
+        .from("tickets")
+        .update({
+          urgency: urgencyVal,
+          impact: impactVal,
+          priority: priorityCategory,
+          priority_score: priorityScore,
+          ...slaData, // Ini akan update sla_due, dll.
+          updated_at: new Date(),
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      // 5. Catat aktivitas
+      await logTicketActivity(
+        id,
+        userId,
+        "classify",
+        `Tiket diklasifikasi oleh Seksi. Prioritas baru: ${priorityCategory} (U: ${urgencyVal}, I: ${impactVal})`
+      );
+
+      // 6. Kirim balasan
+      res.json({
+        success: true,
+        message: "Insiden berhasil diklasifikasi dan prioritas diperbarui",
+        ticket: updatedTicket,
+      });
+    } catch (error) {
+      console.error("Classify incident error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.put(
+  "/incidents/:id",
+  authenticate,
+  authorize("tickets.write"),
+  async (req, res) => {
+    try {
+      const updateData = {};
+      const allowedFields = ["title", "description", "category", "status"];
+
+      allowedFields.forEach((field) => {
+        if (req.body[field] !== undefined) {
+          updateData[field] = req.body[field];
+        }
+      });
+
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ error: "Tidak ada data untuk diupdate" });
+      }
+
+      updateData.updated_at = new Date();
 
       const { data, error } = await supabase
         .from("tickets")
-        .update({
-          assigned_to: technician_id,
-          status: "in_progress",
-          updated_at: new Date(),
-        })
+        .update(updateData)
         .eq("id", req.params.id)
+        .eq("type", "incident")
         .select()
         .single();
 
@@ -784,327 +1034,539 @@ app.post(
       await logTicketActivity(
         req.params.id,
         req.user.id,
-        "assign",
-        `Tiket di-assign ke teknisi ID: ${technician_id}`
-      );
-
-      await sendNotification(
-        technician_id,
-        "Ticket Assigned",
-        `Ticket ${data.ticket_number} telah di-assign kepada Anda`,
-        "info"
+        "update", // <-- Ganti jadi "update"
+        `Incident diperbarui oleh ${req.user.role}` // <-- Hapus ${reason}
       );
 
       res.json({
         success: true,
-        message: "Teknisi berhasil di-assign",
+        message: "Incident berhasil di-eskalasi",
         ticket: data,
       });
     } catch (error) {
-      console.error("Assign ticket error:", error);
+      console.error("Escalate incident error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-/**
- * POST /api/tickets/:id/comments
- * Tambah komentar ke tiket
- */
-app.post("/api/tickets/:id/comments", authenticateToken, async (req, res) => {
-  try {
-    const { content } = req.body;
-
-    if (!content) {
-      return res.status(400).json({ error: "Konten komentar harus diisi" });
-    }
-
-    const { data, error } = await supabase
-      .from("ticket_comments")
-      .insert({
-        ticket_id: req.params.id,
-        user_id: req.user.id,
-        content,
-      })
-      .select(
-        `
-        *,
-        user:user_id(id, username, full_name)
-      `
-      )
-      .single();
-
-    if (error) throw error;
-
-    await logTicketActivity(
-      req.params.id,
-      req.user.id,
-      "comment",
-      "Menambahkan komentar"
-    );
-
-    res.status(201).json({
-      success: true,
-      message: "Komentar berhasil ditambahkan",
-      comment: data,
-    });
-  } catch (error) {
-    console.error("Add comment error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-/**
- * POST /api/tickets/:id/escalate
- * Escalate ticket ke priority lebih tinggi
- */
-app.post(
-  "/api/tickets/:id/escalate",
-  authenticateToken,
-  authorizeRole("admin_kota", "admin_opd", "teknisi"),
+v1Router.post(
+  "/incidents/merge",
+  authenticate,
+  authorize("tickets.write"),
   async (req, res) => {
     try {
-      const { reason } = req.body;
+      const { source_ticket_ids, target_ticket_id, reason } = req.body;
 
-      const { data: ticket } = await supabase
-        .from("tickets")
-        .select("*")
-        .eq("id", req.params.id)
-        .single();
-
-      if (!ticket) {
-        return res.status(404).json({ error: "Ticket tidak ditemukan" });
-      }
-
-      let newPriority = ticket.priority;
-      if (ticket.priority === "low") newPriority = "medium";
-      else if (ticket.priority === "medium") newPriority = "high";
-      else if (ticket.priority === "high") newPriority = "critical";
-      else {
-        return res
-          .status(400)
-          .json({ error: "Ticket sudah di priority maksimal" });
+      if (!source_ticket_ids || !target_ticket_id || !reason) {
+        return res.status(400).json({ error: "Data tidak lengkap" });
       }
 
       await supabase
         .from("tickets")
         .update({
-          priority: newPriority,
-          updated_at: new Date(),
+          status: "merged",
+          merged_to: target_ticket_id,
+          merge_reason: reason,
+          closed_at: new Date(),
         })
-        .eq("id", req.params.id);
+        .in("id", source_ticket_ids)
+        .eq("type", "incident");
 
-      await logTicketActivity(
-        req.params.id,
-        req.user.id,
-        "escalate",
-        `Escalated: ${ticket.priority} → ${newPriority}. Reason: ${
-          reason || "N/A"
-        }`
-      );
-
-      const { data: admins } = await supabase
-        .from("users")
-        .select("id")
-        .eq("role", "admin_opd")
-        .eq("opd_id", ticket.opd_id);
-
-      for (const admin of admins || []) {
-        await sendNotification(
-          admin.id,
-          "Ticket Escalated",
-          `Ticket ${ticket.ticket_number} telah di-escalate ke priority ${newPriority}`,
-          "warning"
+      for (const ticketId of source_ticket_ids) {
+        await logTicketActivity(
+          ticketId,
+          req.user.id,
+          "merge",
+          `Merged to incident ${target_ticket_id}: ${reason}`
         );
       }
 
-      res.json({
-        success: true,
-        message: "Ticket berhasil di-escalate",
-        old_priority: ticket.priority,
-        new_priority: newPriority,
-      });
+      await logTicketActivity(
+        target_ticket_id,
+        req.user.id,
+        "merge",
+        `Received merged incidents: ${source_ticket_ids.join(", ")}`
+      );
+
+      res.json({ success: true, message: "Incidents berhasil di-merge" });
     } catch (error) {
-      console.error("Escalate error:", error);
+      console.error("Merge incidents error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-// ============================================
-// 3. USER MANAGEMENT
-// ============================================
+// ==========================================
+// 7.3. SERVICE REQUEST MANAGEMENT (/requests)
+// ==========================================
+v1Router.get("/catalog", authenticate, async (req, res) => {
+  try {
+    const { opd_id, is_active } = req.query;
 
-/**
- * GET /api/users
- * Get daftar user
- */
-app.get(
-  "/api/users",
-  authenticateToken,
-  authorizeRole("admin_kota", "admin_opd"),
-  async (req, res) => {
-    try {
-      let query = supabase
-        .from("users")
-        .select(
-          "id, username, email, full_name, phone, role, opd_id, is_active, created_at"
-        )
-        .order("created_at", { ascending: false });
+    let query = supabase
+      .from("service_catalog")
+      .select("*")
+      .order("display_order");
 
-      if (req.user.role === "admin_opd") {
-        query = query.eq("opd_id", req.user.opd_id);
+    if (opd_id) query = query.eq("opd_id", opd_id);
+    if (is_active !== undefined)
+      query = query.eq("is_active", is_active === "true");
+
+    const { data: catalogs, error } = await query;
+    if (error) throw error;
+
+    for (const catalog of catalogs || []) {
+      const { data: items } = await supabase
+        .from("service_items")
+        .select("*")
+        .eq("catalog_id", catalog.id)
+        .eq("is_active", true)
+        .order("display_order");
+
+      const subLayanan =
+        items?.filter(
+          (i) => i.item_level === "sub_layanan" && !i.parent_item_id
+        ) || [];
+
+      for (const sub of subLayanan) {
+        sub.detail_layanan =
+          items?.filter((i) => i.parent_item_id === sub.id) || [];
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
-
-      res.json({
-        success: true,
-        count: data.length,
-        users: data,
-      });
-    } catch (error) {
-      console.error("Get users error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
+      catalog.sub_layanan = subLayanan;
+      catalog.total_items = items?.length || 0;
     }
-  }
-);
-
-/**
- * GET /api/users/technicians
- * Get daftar teknisi
- */
-app.get("/api/users/technicians", authenticateToken, async (req, res) => {
-  try {
-    let query = supabase
-      .from("users")
-      .select("id, username, full_name, email, phone, opd_id")
-      .eq("role", "teknisi")
-      .eq("is_active", true);
-
-    if (req.user.role !== "admin_kota" && req.user.opd_id) {
-      query = query.eq("opd_id", req.user.opd_id);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
 
     res.json({
       success: true,
-      count: data.length,
-      technicians: data,
+      count: catalogs?.length || 0,
+      catalogs: catalogs || [],
     });
   } catch (error) {
-    console.error("Get technicians error:", error);
+    console.error("Get catalogs error:", error);
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
 
-/**
- * PUT /api/users/:id
- * Update user
- */
-app.put(
-  "/api/users/:id",
-  authenticateToken,
-  authorizeRole("admin_kota", "admin_opd"),
+v1Router.post(
+  "/requests",
+  authenticate,
+  authorize("tickets.create"),
   async (req, res) => {
     try {
-      const { full_name, email, phone, role, opd_id, is_active } = req.body;
+      const {
+        title,
+        description,
+        service_catalog_id,
+        service_item_id,
+        service_detail,
+        opd_id,
+      } = req.body;
 
-      const updateData = {};
-      if (full_name) updateData.full_name = full_name;
-      if (email) updateData.email = email;
-      if (phone) updateData.phone = phone;
-      if (role) updateData.role = role;
-      if (opd_id !== undefined) updateData.opd_id = opd_id;
-      if (is_active !== undefined) updateData.is_active = is_active;
+      if (!title || !description || !service_catalog_id) {
+        return res.status(400).json({ error: "Data tidak lengkap" });
+      }
 
-      const { data, error } = await supabase
+      const ticketNumber = generateTicketNumber("request");
+      const targetOpdId = opd_id || req.user.opd_id;
+
+      const { data: reporter } = await supabase
         .from("users")
-        .update(updateData)
-        .eq("id", req.params.id)
-        .select(
-          "id, username, email, full_name, phone, role, opd_id, is_active"
-        )
+        .select("nip")
+        .eq("id", req.user.id)
+        .single();
+
+      const { data: ticket, error } = await supabase
+        .from("tickets")
+        .insert({
+          ticket_number: ticketNumber,
+          type: "request",
+          title,
+          description,
+          service_catalog_id,
+          service_item_id,
+          service_detail,
+          opd_id: targetOpdId,
+          reporter_id: req.user.id,
+          reporter_nip: reporter?.nip,
+          status: "pending_approval",
+          priority: "medium",
+        })
+        .select()
         .single();
 
       if (error) throw error;
 
-      res.json({
+      await logTicketActivity(
+        ticket.id,
+        req.user.id,
+        "create",
+        `Service request created: ${ticketNumber}`
+      );
+
+      res.status(201).json({
         success: true,
-        message: "User berhasil diupdate",
-        user: data,
+        message: "Service request berhasil dibuat",
+        ticket,
       });
     } catch (error) {
-      console.error("Update user error:", error);
+      console.error("Create request error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-// ============================================
-// 4. KNOWLEDGE BASE
-// ============================================
-
-/**
- * GET /api/knowledge-base
- * Get artikel knowledge base
- */
-app.get("/api/knowledge-base", async (req, res) => {
+v1Router.get("/requests", authenticate, async (req, res) => {
   try {
-    const { search, category, status } = req.query;
+    const { status, search, opd_id, page = 1, limit = 20 } = req.query;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    let query = supabase
+      .from("tickets")
+      .select(
+        `
+        *,
+        reporter:reporter_id(id, username, full_name, email, nip, phone),
+        technician:assigned_to(id, username, full_name),
+        opd:opd_id(id, name, code),
+        service_catalog:service_catalog_id(id, catalog_name),
+        service_item:service_item_id(id, item_name)
+      `,
+        { count: "exact" }
+      )
+      .eq("type", "request")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + parseInt(limit) - 1);
+
+    // Role-based filtering
+    if (req.user.role === "pengguna") {
+      query = query.eq("reporter_id", req.user.id);
+    } else if (req.user.role === "teknisi") {
+      query = query.eq("assigned_to", req.user.id);
+    } else if (["admin_opd", "bidang", "seksi"].includes(req.user.role)) {
+      query = query.eq("opd_id", req.user.opd_id);
+    }
+
+    if (status) query = query.eq("status", status);
+    if (opd_id) query = query.eq("opd_id", opd_id);
+    if (search) {
+      query = query.or(
+        `title.ilike.%${search}%,ticket_number.ilike.%${search}%,description.ilike.%${search}%`
+      );
+    }
+
+    const { data, count, error } = await query;
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: count,
+        total_pages: Math.ceil(count / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Get requests error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+v1Router.get(
+  "/requests/:id",
+  authenticate,
+  authorize("tickets.read"),
+  async (req, res) => {
+    try {
+      const { data: ticket, error } = await supabase
+        .from("tickets")
+        .select(
+          `
+        *,
+        reporter:reporter_id(id, username, full_name, email, nip, phone),
+        technician:assigned_to(id, username, full_name, phone, nip),
+        opd:opd_id(id, name, code),
+        service_catalog:service_catalog_id(id, catalog_name, description),
+        service_item:service_item_id(id, item_name, description)
+      `
+        )
+        .eq("id", req.params.id)
+        .eq("type", "request")
+        .single();
+
+      if (error) throw error;
+      if (!ticket) {
+        return res
+          .status(404)
+          .json({ error: "Service request tidak ditemukan" });
+      }
+
+      if (req.user.role === "pengguna" && ticket.reporter_id !== req.user.id) {
+        return res.status(403).json({ error: "Akses ditolak" });
+      }
+
+      const { data: approvals } = await supabase
+        .from("approval_workflows")
+        .select("*")
+        .eq("ticket_id", req.params.id)
+        .order("workflow_level");
+
+      const { data: progressUpdates } = await supabase
+        .from("ticket_progress_updates")
+        .select(`*, updated_by_user:updated_by(id, username, full_name)`)
+        .eq("ticket_id", req.params.id)
+        .order("update_number");
+
+      res.json({
+        success: true,
+        ticket,
+        approvals: approvals || [],
+        progress_updates: progressUpdates || [],
+      });
+    } catch (error) {
+      console.error("Get request detail error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.put(
+  "/requests/:id",
+  authenticate,
+  authorize("tickets.write"),
+  async (req, res) => {
+    try {
+      const { status, progress_notes } = req.body;
+
+      const updateData = { updated_at: new Date() };
+      if (status) updateData.status = status;
+      if (progress_notes) updateData.progress_notes = progress_notes;
+
+      const { data, error } = await supabase
+        .from("tickets")
+        .update(updateData)
+        .eq("id", req.params.id)
+        .eq("type", "request")
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await logTicketActivity(
+        req.params.id,
+        req.user.id,
+        "update",
+        "Service request diperbarui"
+      );
+
+      res.json({
+        success: true,
+        message: "Service request berhasil diperbarui",
+        ticket: data,
+      });
+    } catch (error) {
+      console.error("Update request error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.post("/requests/:id/approve", authenticate, async (req, res) => {
+  try {
+    const { notes } = req.body;
+
+    const { data: approval } = await supabase
+      .from("approval_workflows")
+      .select("*, ticket:ticket_id(*)")
+      .eq("ticket_id", req.params.id)
+      .eq("approver_role", req.user.role)
+      .eq("status", "pending")
+      .single();
+
+    if (!approval) {
+      return res.status(404).json({ error: "Approval tidak ditemukan" });
+    }
+
+    await supabase
+      .from("approval_workflows")
+      .update({
+        approver_id: req.user.id,
+        status: "approved",
+        notes,
+        responded_at: new Date(),
+      })
+      .eq("id", approval.id);
+
+    const { data: allApprovals } = await supabase
+      .from("approval_workflows")
+      .select("status")
+      .eq("ticket_id", req.params.id)
+      .order("workflow_level");
+
+    const allApproved = allApprovals?.every((a) => a.status === "approved");
+
+    if (allApproved) {
+      await supabase
+        .from("tickets")
+        .update({ status: "open", updated_at: new Date() })
+        .eq("id", req.params.id);
+    }
+
+    await logTicketActivity(
+      req.params.id,
+      req.user.id,
+      "approve",
+      `Approved by ${req.user.role}. ${notes || ""}`
+    );
+
+    res.json({
+      success: true,
+      message: "Service request berhasil disetujui",
+      all_approved: allApproved,
+    });
+  } catch (error) {
+    console.error("Approve request error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+v1Router.post("/requests/:id/reject", authenticate, async (req, res) => {
+  try {
+    const { notes } = req.body;
+
+    if (!notes) {
+      return res.status(400).json({ error: "Alasan penolakan harus diisi" });
+    }
+
+    const { data: approval } = await supabase
+      .from("approval_workflows")
+      .select("*, ticket:ticket_id(*)")
+      .eq("ticket_id", req.params.id)
+      .eq("approver_role", req.user.role)
+      .eq("status", "pending")
+      .single();
+
+    if (!approval) {
+      return res.status(404).json({ error: "Approval tidak ditemukan" });
+    }
+
+    await supabase
+      .from("approval_workflows")
+      .update({
+        approver_id: req.user.id,
+        status: "rejected",
+        notes,
+        responded_at: new Date(),
+      })
+      .eq("id", approval.id);
+
+    await supabase
+      .from("tickets")
+      .update({ status: "rejected", closed_at: new Date() })
+      .eq("id", req.params.id);
+
+    await logTicketActivity(
+      req.params.id,
+      req.user.id,
+      "reject",
+      `Rejected by ${req.user.role}. Reason: ${notes}`
+    );
+
+    res.json({ success: true, message: "Service request berhasil ditolak" });
+  } catch (error) {
+    console.error("Reject request error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.4. KNOWLEDGE BASE (/kb)
+// ==========================================
+v1Router.get("/kb", authenticate, async (req, res) => {
+  try {
+    const { category, status, search, page = 1, limit = 20 } = req.query;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     let query = supabase
       .from("knowledge_base")
       .select(
         `
         *,
-        author:created_by(id, username, full_name)
-      `
+        author:created_by(id, username, full_name),
+        opd:opd_id(id, name)
+      `,
+        { count: "exact" }
       )
-      .order("view_count", { ascending: false });
+      .order("created_at", { ascending: false })
+      .range(offset, offset + parseInt(limit) - 1);
 
-    if (
-      !req.user ||
-      (req.user.role !== "admin_kota" && req.user.role !== "admin_opd")
-    ) {
-      query = query.eq("status", "published");
-    }
-
-    if (status) query = query.eq("status", status);
     if (category) query = query.eq("category", category);
+    if (status) query = query.eq("status", status);
+    else query = query.eq("status", "published");
+
     if (search) {
-      query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+      query = query.or(
+        `title.ilike.%${search}%,content.ilike.%${search}%,tags.cs.{${search}}`
+      );
     }
 
-    const { data, error } = await query;
+    const { data, count, error } = await query;
     if (error) throw error;
 
     res.json({
       success: true,
-      count: data.length,
-      articles: data,
+      data,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: count,
+        total_pages: Math.ceil(count / parseInt(limit)),
+      },
     });
   } catch (error) {
-    console.error("Get KB error:", error);
+    console.error("Get KB articles error:", error);
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
 
-/**
- * GET /api/knowledge-base/:id
- * Get detail artikel KB
- */
-app.get("/api/knowledge-base/:id", async (req, res) => {
+v1Router.get("/kb/suggest", authenticate, async (req, res) => {
+  try {
+    const { query } = req.query;
+
+    if (!query) {
+      return res.status(400).json({ error: "Query harus diisi" });
+    }
+
+    const { data, error } = await supabase
+      .from("knowledge_base")
+      .select("id, title, content, category")
+      .eq("status", "published")
+      .or(`title.ilike.%${query}%,content.ilike.%${query}%,tags.cs.{${query}}`)
+      .limit(5);
+
+    if (error) throw error;
+
+    res.json({ success: true, count: data.length, suggestions: data });
+  } catch (error) {
+    console.error("Suggest KB articles error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+v1Router.get("/kb/:id", authenticate, async (req, res) => {
   try {
     const { data: article, error } = await supabase
       .from("knowledge_base")
       .select(
         `
         *,
-        author:created_by(id, username, full_name)
+        author:created_by(id, username, full_name),
+        opd:opd_id(id, name)
       `
       )
       .eq("id", req.params.id)
@@ -1120,77 +1582,61 @@ app.get("/api/knowledge-base/:id", async (req, res) => {
       .update({ view_count: (article.view_count || 0) + 1 })
       .eq("id", req.params.id);
 
-    res.json({
-      success: true,
-      article,
-    });
+    res.json({ success: true, article });
   } catch (error) {
-    console.error("Get KB detail error:", error);
+    console.error("Get KB article error:", error);
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
 
-/**
- * POST /api/knowledge-base
- * Buat artikel KB baru
- */
-app.post(
-  "/api/knowledge-base",
-  authenticateToken,
-  authorizeRole("admin_kota", "admin_opd"),
-  async (req, res) => {
-    try {
-      const { title, content, category, tags, status } = req.body;
+v1Router.post("/kb", authenticate, authorize("kb.write"), async (req, res) => {
+  try {
+    const { title, content, category, tags, opd_id } = req.body;
 
-      if (!title || !content) {
-        return res.status(400).json({ error: "Judul dan konten harus diisi" });
-      }
-
-      const { data, error } = await supabase
-        .from("knowledge_base")
-        .insert({
-          title,
-          content,
-          category: category || "Umum",
-          tags: tags || [],
-          status: status || "draft",
-          created_by: req.user.id,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      res.status(201).json({
-        success: true,
-        message: "Artikel berhasil dibuat",
-        article: data,
-      });
-    } catch (error) {
-      console.error("Create KB error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
+    if (!title || !content) {
+      return res.status(400).json({ error: "Title dan content harus diisi" });
     }
-  }
-);
 
-/**
- * PUT /api/knowledge-base/:id
- * Update artikel KB
- */
-app.put(
-  "/api/knowledge-base/:id",
-  authenticateToken,
-  authorizeRole("admin_kota", "admin_opd"),
+    const { data, error } = await supabase
+      .from("knowledge_base")
+      .insert({
+        title,
+        content,
+        category,
+        tags: tags || [],
+        opd_id: opd_id || req.user.opd_id,
+        created_by: req.user.id,
+        status: "draft",
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      success: true,
+      message: "Artikel KB berhasil dibuat (draft)",
+      article: data,
+    });
+  } catch (error) {
+    console.error("Create KB article error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+v1Router.put(
+  "/kb/:id",
+  authenticate,
+  authorize("kb.write"),
   async (req, res) => {
     try {
-      const { title, content, category, tags, status } = req.body;
+      const { title, content, category, tags } = req.body;
 
       const updateData = { updated_at: new Date() };
       if (title) updateData.title = title;
       if (content) updateData.content = content;
       if (category) updateData.category = category;
       if (tags) updateData.tags = tags;
-      if (status) updateData.status = status;
 
       const { data, error } = await supabase
         .from("knowledge_base")
@@ -1203,334 +1649,211 @@ app.put(
 
       res.json({
         success: true,
-        message: "Artikel berhasil diupdate",
+        message: "Artikel KB berhasil diperbarui",
         article: data,
       });
     } catch (error) {
-      console.error("Update KB error:", error);
+      console.error("Update KB article error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-/**
- * POST /api/knowledge-base/:id/helpful
- * Mark artikel sebagai helpful
- */
-app.post("/api/knowledge-base/:id/helpful", async (req, res) => {
-  try {
-    const { data: article } = await supabase
-      .from("knowledge_base")
-      .select("helpful_count")
-      .eq("id", req.params.id)
-      .single();
-
-    if (!article) {
-      return res.status(404).json({ error: "Artikel tidak ditemukan" });
-    }
-
-    await supabase
-      .from("knowledge_base")
-      .update({ helpful_count: (article.helpful_count || 0) + 1 })
-      .eq("id", req.params.id);
-
-    res.json({
-      success: true,
-      message: "Terima kasih atas feedback Anda",
-    });
-  } catch (error) {
-    console.error("KB helpful error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-// ============================================
-// 5. DASHBOARD & REPORTS
-// ============================================
-
-/**
- * GET /api/dashboard/stats
- * Get statistik dashboard
- */
-app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
-  try {
-    let ticketQuery = supabase.from("tickets").select("*");
-
-    if (req.user.role === "pengguna") {
-      ticketQuery = ticketQuery.eq("reporter_id", req.user.id);
-    } else if (req.user.role === "teknisi") {
-      ticketQuery = ticketQuery.eq("assigned_to", req.user.id);
-    } else if (req.user.role === "admin_opd") {
-      ticketQuery = ticketQuery.eq("opd_id", req.user.opd_id);
-    }
-
-    const { data: tickets } = await ticketQuery;
-
-    const stats = {
-      total_tickets: tickets.length,
-      open: tickets.filter((t) => t.status === "open").length,
-      in_progress: tickets.filter((t) => t.status === "in_progress").length,
-      resolved: tickets.filter((t) => t.status === "resolved").length,
-      closed: tickets.filter((t) => t.status === "closed").length,
-      sla_breached: tickets.filter((t) => t.sla_breached).length,
-      by_priority: {
-        low: tickets.filter((t) => t.priority === "low").length,
-        medium: tickets.filter((t) => t.priority === "medium").length,
-        high: tickets.filter((t) => t.priority === "high").length,
-        critical: tickets.filter((t) => t.priority === "critical").length,
-      },
-      by_type: {
-        incident: tickets.filter((t) => t.type === "incident").length,
-        request: tickets.filter((t) => t.type === "request").length,
-      },
-    };
-
-    const resolvedTickets = tickets.filter(
-      (t) => t.status === "resolved" || t.status === "closed"
-    );
-    const slaCompliance =
-      resolvedTickets.length > 0
-        ? (
-            ((resolvedTickets.length - stats.sla_breached) /
-              resolvedTickets.length) *
-            100
-          ).toFixed(2)
-        : 100;
-
-    res.json({
-      success: true,
-      stats,
-      sla_compliance: `${slaCompliance}%`,
-    });
-  } catch (error) {
-    console.error("Dashboard stats error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-/**
- * GET /api/dashboard/recent-tickets
- * Get tiket terbaru
- */
-app.get(
-  "/api/dashboard/recent-tickets",
-  authenticateToken,
+v1Router.delete(
+  "/kb/:id",
+  authenticate,
+  authorize("kb.write"),
   async (req, res) => {
     try {
-      const limit = parseInt(req.query.limit) || 10;
+      const { error } = await supabase
+        .from("knowledge_base")
+        .delete()
+        .eq("id", req.params.id);
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        message: "Artikel KB berhasil dihapus",
+      });
+    } catch (error) {
+      console.error("Delete KB article error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+// ==========================================
+// 7.5. DASHBOARD & REPORTS
+// ==========================================
+v1Router.get("/dashboard", authenticate, async (req, res) => {
+  try {
+    const userRole = req.user.role;
+    const opdId = req.user.opd_id;
+
+    let ticketFilter = {};
+
+    if (userRole === "pengguna") {
+      ticketFilter = { reporter_id: req.user.id };
+    } else if (userRole === "teknisi") {
+      ticketFilter = { assigned_to: req.user.id };
+    } else if (["admin_opd", "bidang", "seksi"].includes(userRole)) {
+      ticketFilter = { opd_id: opdId };
+    }
+
+    let query = supabase
+      .from("tickets")
+      .select("status, priority, type", { count: "exact" });
+
+    Object.entries(ticketFilter).forEach(([key, value]) => {
+      query = query.eq(key, value);
+    });
+
+    const { data: tickets, count: totalTickets } = await query;
+
+    const statusCounts = {
+      open: 0,
+      assigned: 0,
+      in_progress: 0,
+      resolved: 0,
+      closed: 0,
+    };
+
+    const priorityCounts = {
+      low: 0,
+      medium: 0,
+      high: 0,
+      major: 0,
+    };
+
+    tickets?.forEach((ticket) => {
+      if (statusCounts[ticket.status] !== undefined) {
+        statusCounts[ticket.status]++;
+      }
+      if (priorityCounts[ticket.priority] !== undefined) {
+        priorityCounts[ticket.priority]++;
+      }
+    });
+
+    res.json({
+      success: true,
+      dashboard: {
+        total_tickets: totalTickets,
+        by_status: statusCounts,
+        by_priority: priorityCounts,
+        role: userRole,
+        scope:
+          userRole === "admin_kota"
+            ? "All OPD"
+            : opdId
+            ? `OPD ${opdId}`
+            : "Personal",
+      },
+    });
+  } catch (error) {
+    console.error("Get dashboard error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+v1Router.get(
+  "/reports/sla",
+  authenticate,
+  authorize("reports.read"),
+  async (req, res) => {
+    try {
+      const { opd_id, date_from, date_to } = req.query;
 
       let query = supabase
         .from("tickets")
         .select(
-          `
-        id,
-        ticket_number,
-        title,
-        priority,
-        status,
-        type,
-        created_at,
-        reporter:reporter_id(username, full_name)
-      `
-        )
-        .order("created_at", { ascending: false })
-        .limit(limit);
+          "ticket_number, priority, status, sla_due, resolved_at, opd:opd_id(name)"
+        );
 
-      if (req.user.role === "pengguna") {
-        query = query.eq("reporter_id", req.user.id);
-      } else if (req.user.role === "teknisi") {
-        query = query.eq("assigned_to", req.user.id);
-      } else if (req.user.role === "admin_opd") {
-        query = query.eq("opd_id", req.user.opd_id);
-      }
+      if (opd_id) query = query.eq("opd_id", opd_id);
+      if (date_from) query = query.gte("created_at", date_from);
+      if (date_to) query = query.lte("created_at", date_to);
 
       const { data, error } = await query;
       if (error) throw error;
 
       res.json({
         success: true,
-        tickets: data,
+        count: data.length,
+        report: data,
       });
     } catch (error) {
-      console.error("Recent tickets error:", error);
+      console.error("Get SLA report error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-/**
- * GET /api/reports/sla-compliance
- * Laporan SLA Compliance
- */
-app.get(
-  "/api/reports/sla-compliance",
-  authenticateToken,
-  authorizeRole("admin_kota", "admin_opd"),
+v1Router.get(
+  "/reports/performance",
+  authenticate,
+  authorize("dashboard.read"),
   async (req, res) => {
     try {
-      const { start_date, end_date } = req.query;
+      const { technician_id, date_from, date_to } = req.query;
 
       let query = supabase
         .from("tickets")
-        .select("*")
-        .in("status", ["resolved", "closed"]);
+        .select(
+          "assigned_to, status, resolved_at, technician:assigned_to(full_name)"
+        );
 
-      if (req.user.role === "admin_opd") {
-        query = query.eq("opd_id", req.user.opd_id);
-      }
+      if (technician_id) query = query.eq("assigned_to", technician_id);
+      if (date_from) query = query.gte("created_at", date_from);
+      if (date_to) query = query.lte("created_at", date_to);
 
-      if (start_date) query = query.gte("created_at", start_date);
-      if (end_date) query = query.lte("created_at", end_date);
-
-      const { data: tickets, error } = await query;
+      const { data, error } = await query;
       if (error) throw error;
-
-      const byPriority = {
-        low: { total: 0, breached: 0, compliance: 0 },
-        medium: { total: 0, breached: 0, compliance: 0 },
-        high: { total: 0, breached: 0, compliance: 0 },
-        critical: { total: 0, breached: 0, compliance: 0 },
-      };
-
-      tickets.forEach((t) => {
-        if (byPriority[t.priority]) {
-          byPriority[t.priority].total++;
-          if (t.sla_breached) byPriority[t.priority].breached++;
-        }
-      });
-
-      Object.keys(byPriority).forEach((priority) => {
-        const p = byPriority[priority];
-        p.compliance =
-          p.total > 0
-            ? (((p.total - p.breached) / p.total) * 100).toFixed(2) + "%"
-            : "100%";
-      });
-
-      const totalBreached = tickets.filter((t) => t.sla_breached).length;
-      const overallCompliance =
-        tickets.length > 0
-          ? (((tickets.length - totalBreached) / tickets.length) * 100).toFixed(
-              2
-            )
-          : 100;
 
       res.json({
         success: true,
-        period: { start_date, end_date },
-        overall: {
-          total: tickets.length,
-          met: tickets.length - totalBreached,
-          breached: totalBreached,
-          compliance: `${overallCompliance}%`,
-        },
-        by_priority: byPriority,
+        count: data.length,
+        report: data,
       });
     } catch (error) {
-      console.error("SLA report error:", error);
+      console.error("Get performance report error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-// ============================================
-// 6. OPD MANAGEMENT
-// ============================================
-
-/**
- * GET /api/opd
- * Get daftar OPD
- */
-app.get("/api/opd", authenticateToken, async (req, res) => {
+// ==========================================
+// 7.6. NOTIFICATIONS
+// ==========================================
+v1Router.get("/notifications", authenticate, async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("opd")
-      .select("*")
-      .eq("is_active", true)
-      .order("name");
+    const { is_read, page = 1, limit = 20 } = req.query;
 
-    if (error) throw error;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    res.json({
-      success: true,
-      count: data.length,
-      opd: data,
-    });
-  } catch (error) {
-    console.error("Get OPD error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-/**
- * POST /api/opd
- * Buat OPD baru
- */
-app.post(
-  "/api/opd",
-  authenticateToken,
-  authorizeRole("admin_kota"),
-  async (req, res) => {
-    try {
-      const { code, name, address, phone, email } = req.body;
-
-      if (!code || !name) {
-        return res.status(400).json({ error: "Kode dan nama OPD harus diisi" });
-      }
-
-      const { data, error } = await supabase
-        .from("opd")
-        .insert({
-          code: code.toUpperCase(),
-          name,
-          address,
-          phone,
-          email,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      res.status(201).json({
-        success: true,
-        message: "OPD berhasil dibuat",
-        opd: data,
-      });
-    } catch (error) {
-      console.error("Create OPD error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-// ============================================
-// 7. NOTIFICATIONS
-// ============================================
-
-/**
- * GET /api/notifications
- * Get notifikasi user
- */
-app.get("/api/notifications", authenticateToken, async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 20;
-
-    const { data, error } = await supabase
+    let query = supabase
       .from("notifications")
-      .select("*")
+      .select("*", { count: "exact" })
       .eq("user_id", req.user.id)
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .range(offset, offset + parseInt(limit) - 1);
 
+    if (is_read !== undefined) {
+      query = query.eq("is_read", is_read === "true");
+    }
+
+    const { data, count, error } = await query;
     if (error) throw error;
-
-    const unread = data.filter((n) => !n.is_read).length;
 
     res.json({
       success: true,
-      unread_count: unread,
-      notifications: data,
+      data,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: count,
+        total_pages: Math.ceil(count / parseInt(limit)),
+      },
     });
   } catch (error) {
     console.error("Get notifications error:", error);
@@ -1538,55 +1861,662 @@ app.get("/api/notifications", authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * PUT /api/notifications/:id/read
- * Tandai notifikasi sebagai sudah dibaca
- */
-app.put("/api/notifications/:id/read", authenticateToken, async (req, res) => {
+v1Router.post("/notifications/mark-read", authenticate, async (req, res) => {
+  try {
+    const { notification_ids } = req.body;
+
+    if (!notification_ids || !Array.isArray(notification_ids)) {
+      return res
+        .status(400)
+        .json({ error: "notification_ids harus berupa array" });
+    }
+
+    const { error } = await supabase
+      .from("notifications")
+      .update({ is_read: true, read_at: new Date() })
+      .in("id", notification_ids)
+      .eq("user_id", req.user.id);
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      message: "Notifikasi berhasil ditandai sudah dibaca",
+    });
+  } catch (error) {
+    console.error("Mark notifications as read error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.7. SEARCH
+// ==========================================
+v1Router.get("/search", authenticate, async (req, res) => {
+  try {
+    const { q, type, page = 1, limit = 20 } = req.query;
+
+    if (!q) {
+      return res.status(400).json({ error: "Query pencarian harus diisi" });
+    }
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const results = {};
+
+    // Search tickets
+    if (!type || type === "tickets") {
+      let ticketQuery = supabase
+        .from("tickets")
+        .select("id, ticket_number, title, type, status, created_at", {
+          count: "exact",
+        })
+        .or(
+          `title.ilike.%${q}%,ticket_number.ilike.%${q}%,description.ilike.%${q}%`
+        )
+        .range(offset, offset + parseInt(limit) - 1);
+
+      if (req.user.role === "pengguna") {
+        ticketQuery = ticketQuery.eq("reporter_id", req.user.id);
+      } else if (["admin_opd", "bidang", "seksi"].includes(req.user.role)) {
+        ticketQuery = ticketQuery.eq("opd_id", req.user.opd_id);
+      }
+
+      const { data: tickets, count: ticketCount } = await ticketQuery;
+      results.tickets = { data: tickets, count: ticketCount };
+    }
+
+    // Search KB
+    if (!type || type === "kb") {
+      const { data: articles, count: kbCount } = await supabase
+        .from("knowledge_base")
+        .select("id, title, category, created_at", { count: "exact" })
+        .eq("status", "published")
+        .or(`title.ilike.%${q}%,content.ilike.%${q}%`)
+        .range(offset, offset + parseInt(limit) - 1);
+
+      results.kb = { data: articles, count: kbCount };
+    }
+
+    res.json({
+      success: true,
+      query: q,
+      results,
+    });
+  } catch (error) {
+    console.error("Search error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.8. SURVEY
+// ==========================================
+v1Router.post("/survey", authenticate, async (req, res) => {
+  try {
+    const { ticket_id, rating, feedback, categories } = req.body;
+
+    if (!ticket_id || !rating) {
+      return res
+        .status(400)
+        .json({ error: "ticket_id dan rating harus diisi" });
+    }
+
+    const { data, error } = await supabase
+      .from("ticket_surveys")
+      .insert({
+        ticket_id,
+        user_id: req.user.id,
+        rating: parseInt(rating),
+        feedback,
+        categories: categories || {},
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    await logTicketActivity(
+      ticket_id,
+      req.user.id,
+      "survey",
+      `Survey submitted: rating ${rating}/5`
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Survey berhasil dikirim",
+      survey: data,
+    });
+  } catch (error) {
+    console.error("Submit survey error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.9. CHAT/HELPDESK
+// ==========================================
+v1Router.post("/chat/send", authenticate, async (req, res) => {
+  try {
+    const { message, ticket_id } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: "Message harus diisi" });
+    }
+
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .insert({
+        user_id: req.user.id,
+        message,
+        ticket_id: ticket_id || null,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      success: true,
+      message: "Pesan berhasil dikirim",
+      chat: data,
+    });
+  } catch (error) {
+    console.error("Send chat error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.10. SYNC (Mobile Offline)
+// ==========================================
+v1Router.post("/sync", authenticate, async (req, res) => {
+  try {
+    const { tickets, progress_updates } = req.body;
+
+    const results = {
+      tickets: [],
+      progress_updates: [],
+      errors: [],
+    };
+
+    // Sync tickets
+    if (tickets && Array.isArray(tickets)) {
+      for (const ticket of tickets) {
+        try {
+          const ticketNumber = generateTicketNumber(ticket.type || "incident");
+          const { data } = await supabase
+            .from("tickets")
+            .insert({
+              ...ticket,
+              ticket_number: ticketNumber,
+              reporter_id: req.user.id,
+              created_at: ticket.created_at || new Date(),
+            })
+            .select()
+            .single();
+
+          results.tickets.push({
+            local_id: ticket.local_id,
+            server_id: data.id,
+            ticket_number: ticketNumber,
+          });
+        } catch (error) {
+          results.errors.push({
+            type: "ticket",
+            local_id: ticket.local_id,
+            error: error.message,
+          });
+        }
+      }
+    }
+
+    // Sync progress updates
+    if (progress_updates && Array.isArray(progress_updates)) {
+      for (const update of progress_updates) {
+        try {
+          const { data } = await supabase
+            .from("ticket_progress_updates")
+            .insert({
+              ...update,
+              updated_by: req.user.id,
+              created_at: update.created_at || new Date(),
+            })
+            .select()
+            .single();
+
+          results.progress_updates.push({
+            local_id: update.local_id,
+            server_id: data.id,
+          });
+        } catch (error) {
+          results.errors.push({
+            type: "progress_update",
+            local_id: update.local_id,
+            error: error.message,
+          });
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Sinkronisasi selesai",
+      results,
+    });
+  } catch (error) {
+    console.error("Sync error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.11. ADMIN OPERATIONS (/admin)
+// ==========================================
+v1Router.get(
+  "/admin/users",
+  authenticate,
+  authorize("users.read"),
+  async (req, res) => {
+    try {
+      const { role, opd_id, is_active, page = 1, limit = 20 } = req.query;
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      let query = supabase
+        .from("users")
+        .select(
+          `
+        id, username, email, full_name, nip, phone, role, is_active,
+        opd:opd_id(id, name),
+        bidang:bidang_id(id, name),
+        seksi:seksi_id(id, name),
+        created_at, last_login_at
+      `,
+          { count: "exact" }
+        )
+        .order("created_at", { ascending: false })
+        .range(offset, offset + parseInt(limit) - 1);
+
+      if (role) query = query.eq("role", role);
+      if (opd_id) query = query.eq("opd_id", opd_id);
+      if (is_active !== undefined)
+        query = query.eq("is_active", is_active === "true");
+
+      const { data, count, error } = await query;
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        data,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: count,
+          total_pages: Math.ceil(count / parseInt(limit)),
+        },
+      });
+    } catch (error) {
+      console.error("Get users error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.post(
+  "/admin/users",
+  authenticate,
+  authorize("users.write"), // <--- PERBAIKAN: Hanya admin yang bisa akses
+  async (req, res) => {
+    try {
+      // Admin mengambil data lengkap dari form
+      const {
+        username,
+        password,
+        email,
+        full_name,
+        nip,
+        phone,
+        address,
+        role, // <--- AMAN, karena hanya Admin yang bisa
+        opd_id, // <--- AMAN
+        bidang_id,
+        seksi_id,
+      } = req.body;
+
+      // Validasi data wajib
+      if (!username || !password || !email || !role || !full_name) {
+        return res.status(400).json({
+          error:
+            "Username, password, email, nama lengkap, dan role harus diisi",
+        });
+      }
+
+      // Validasi agar role non-admin_kota harus punya OPD
+      if (role !== "admin_kota" && !opd_id) {
+        return res
+          .status(400)
+          .json({ error: "Hanya Admin Kota yang boleh tidak memiliki OPD ID" });
+      }
+
+      // Validasi role yang masuk ada di konfigurasi RBAC Anda
+      if (!RBAC_ROLES[role]) {
+        return res.status(400).json({ error: "Role tidak valid" });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const { data, error } = await supabase
+        .from("users")
+        .insert({
+          username,
+          password: hashedPassword,
+          email,
+          full_name,
+          nip,
+          phone,
+          address,
+          role: role, // <--- Diisi sesuai input Admin
+          opd_id: opd_id || null,
+          bidang_id: bidang_id || null,
+          seksi_id: seksi_id || null,
+          is_active: true, // Admin yang buat, bisa langsung aktif
+        })
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === "23505") {
+          return res
+            .status(400)
+            .json({ error: "Username atau email sudah digunakan" });
+        }
+        throw error;
+      }
+
+      delete data.password;
+
+      res.status(201).json({
+        success: true,
+        message: `Akun pegawai (${role}) berhasil dibuat`,
+        user: data,
+      });
+    } catch (error) {
+      console.error("Admin create user error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.put(
+  "/admin/users/:id/role",
+  authenticate,
+  authorize("users.write"),
+  async (req, res) => {
+    try {
+      const { role, opd_id, bidang_id, seksi_id, is_active } = req.body;
+
+      const updateData = {};
+      if (role) updateData.role = role;
+      if (opd_id !== undefined) updateData.opd_id = opd_id;
+      if (bidang_id !== undefined) updateData.bidang_id = bidang_id;
+      if (seksi_id !== undefined) updateData.seksi_id = seksi_id;
+      if (is_active !== undefined) updateData.is_active = is_active;
+
+      const { data, error } = await supabase
+        .from("users")
+        .update(updateData)
+        .eq("id", req.params.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        message: "Role user berhasil diperbarui",
+        user: data,
+      });
+    } catch (error) {
+      console.error("Update user role error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.get(
+  "/admin/opd",
+  authenticate,
+  authorize("opd.read"),
+  async (req, res) => {
+    try {
+      const { is_active, page = 1, limit = 20 } = req.query;
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      let query = supabase
+        .from("opd")
+        .select("*", { count: "exact" })
+        .order("name")
+        .range(offset, offset + parseInt(limit) - 1);
+
+      if (is_active !== undefined)
+        query = query.eq("is_active", is_active === "true");
+
+      const { data, count, error } = await query;
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        data,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: count,
+          total_pages: Math.ceil(count / parseInt(limit)),
+        },
+      });
+    } catch (error) {
+      console.error("Get OPD error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.put(
+  "/admin/opd/:id/branding",
+  authenticate,
+  authorize("opd.write"),
+  async (req, res) => {
+    try {
+      const { logo_url, primary_color, secondary_color } = req.body;
+
+      const branding = {};
+      if (logo_url) branding.logo_url = logo_url;
+      if (primary_color) branding.primary_color = primary_color;
+      if (secondary_color) branding.secondary_color = secondary_color;
+
+      const { data, error } = await supabase
+        .from("opd")
+        .update({ branding })
+        .eq("id", req.params.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        message: "Branding OPD berhasil diperbarui",
+        opd: data,
+      });
+    } catch (error) {
+      console.error("Update OPD branding error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.get("/admin/opd/:id/calendar", authenticate, async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from("notifications")
-      .update({ is_read: true })
+      .from("opd")
+      .select("working_hours, holidays")
       .eq("id", req.params.id)
-      .eq("user_id", req.user.id)
-      .select()
       .single();
 
     if (error) throw error;
 
     res.json({
       success: true,
-      message: "Notifikasi ditandai sebagai sudah dibaca",
-      notification: data,
+      working_hours: data.working_hours || {},
+      holidays: data.holidays || [],
     });
   } catch (error) {
-    console.error("Mark notification read error:", error);
+    console.error("Get OPD calendar error:", error);
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
 
-// ============================================
-// 8. INTEGRATION ENDPOINTS
-// ============================================
-
-/**
- * POST /api/integration/tickets/:id/link-asset
- * Link ticket ke aset
- */
-app.post(
-  "/api/integration/tickets/:id/link-asset",
-  authenticateToken,
+v1Router.put(
+  "/admin/opd/:id/calendar",
+  authenticate,
+  authorize("opd.write"),
   async (req, res) => {
     try {
-      const { asset_id, asset_name, description } = req.body;
+      const { working_hours, holidays } = req.body;
 
-      if (!asset_id || !asset_name) {
-        return res.status(400).json({ error: "Asset ID dan nama harus diisi" });
+      const updateData = {};
+      if (working_hours) updateData.working_hours = working_hours;
+      if (holidays) updateData.holidays = holidays;
+
+      const { data, error } = await supabase
+        .from("opd")
+        .update(updateData)
+        .eq("id", req.params.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        message: "Kalender OPD berhasil diperbarui",
+        opd: data,
+      });
+    } catch (error) {
+      console.error("Update OPD calendar error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.put(
+  "/admin/technicians/:id/skills",
+  authenticate,
+  authorize("users.write"),
+  async (req, res) => {
+    try {
+      const { skills, expertise_level, certifications } = req.body;
+
+      if (!skills || !Array.isArray(skills)) {
+        return res.status(400).json({ error: "Skills harus berupa array" });
+      }
+
+      // Delete existing skills
+      await supabase
+        .from("technician_skills")
+        .delete()
+        .eq("user_id", req.params.id);
+
+      // Insert new skills
+      const skillsData = skills.map((skill) => ({
+        user_id: req.params.id,
+        skill_name: skill.name,
+        skill_level: skill.level || "intermediate",
+        category: skill.category,
+      }));
+
+      const { data, error } = await supabase
+        .from("technician_skills")
+        .insert(skillsData)
+        .select();
+
+      if (error) throw error;
+
+      // Update user record
+      await supabase
+        .from("users")
+        .update({
+          expertise_level,
+          certifications,
+        })
+        .eq("id", req.params.id);
+
+      res.json({
+        success: true,
+        message: "Skills teknisi berhasil diperbarui",
+        skills: data,
+      });
+    } catch (error) {
+      console.error("Update technician skills error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.post("/admin/technicians/check-in", authenticate, async (req, res) => {
+  try {
+    const { asset_id, qr_code, latitude, longitude } = req.body;
+
+    if (!asset_id && !qr_code) {
+      return res
+        .status(400)
+        .json({ error: "asset_id atau qr_code harus diisi" });
+    }
+
+    const { data, error } = await supabase
+      .from("technician_check_ins")
+      .insert({
+        technician_id: req.user.id,
+        asset_id,
+        qr_code,
+        latitude,
+        longitude,
+        check_in_time: new Date(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      success: true,
+      message: "Check-in berhasil",
+      check_in: data,
+    });
+  } catch (error) {
+    console.error("Technician check-in error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.12. FILE ATTACHMENTS
+// ==========================================
+v1Router.post(
+  "/incidents/:id/attachments",
+  authenticate,
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "File harus diupload" });
       }
 
       const { data: ticket } = await supabase
         .from("tickets")
-        .select("id")
+        .select("ticket_number")
         .eq("id", req.params.id)
         .single();
 
@@ -1594,14 +2524,18 @@ app.post(
         return res.status(404).json({ error: "Ticket tidak ditemukan" });
       }
 
+      const uploadedFile = await uploadFile(
+        req.file,
+        ticket.ticket_number,
+        "attachment"
+      );
+
       const { data, error } = await supabase
-        .from("ticket_asset_links")
+        .from("ticket_attachments")
         .insert({
           ticket_id: req.params.id,
-          asset_id,
-          asset_name,
-          description: description || null,
-          linked_by: req.user.id,
+          ...uploadedFile,
+          uploaded_by: req.user.id,
         })
         .select()
         .single();
@@ -1611,99 +2545,55 @@ app.post(
       await logTicketActivity(
         req.params.id,
         req.user.id,
-        "link_asset",
-        `Asset linked: ${asset_name} (${asset_id})`
+        "attachment",
+        `File uploaded: ${uploadedFile.file_name}`
       );
 
-      res.json({
+      res.status(201).json({
         success: true,
-        message: "Asset berhasil di-link ke ticket",
-        link: data,
+        message: "File berhasil diupload",
+        attachment: data,
       });
     } catch (error) {
-      console.error("Link asset error:", error);
+      console.error("Upload attachment error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-/**
- * GET /api/integration/tickets/:id/assets
- * Get semua asset yang linked ke ticket
- */
-app.get(
-  "/api/integration/tickets/:id/assets",
-  authenticateToken,
+v1Router.post(
+  "/requests/:id/attachments",
+  authenticate,
+  upload.single("file"),
   async (req, res) => {
     try {
-      const { data, error } = await supabase
-        .from("ticket_asset_links")
-        .select(
-          `
-          *,
-          linked_by_user:linked_by(id, username, full_name)
-        `
-        )
-        .eq("ticket_id", req.params.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      res.json({
-        success: true,
-        count: data.length,
-        assets: data,
-      });
-    } catch (error) {
-      console.error("Get linked assets error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-/**
- * POST /api/integration/tickets/:id/create-change
- * Buat Change Request dari ticket
- */
-app.post(
-  "/api/integration/tickets/:id/create-change",
-  authenticateToken,
-  authorizeRole("admin_kota", "admin_opd", "teknisi"),
-  async (req, res) => {
-    try {
-      const {
-        change_type,
-        title,
-        impact,
-        rollback_plan,
-        schedule_start,
-        affected_ci_ids,
-      } = req.body;
+      if (!req.file) {
+        return res.status(400).json({ error: "File harus diupload" });
+      }
 
       const { data: ticket } = await supabase
         .from("tickets")
-        .select("*")
+        .select("ticket_number")
         .eq("id", req.params.id)
+        .eq("type", "request")
         .single();
 
       if (!ticket) {
-        return res.status(404).json({ error: "Ticket tidak ditemukan" });
+        return res.status(404).json({ error: "Request tidak ditemukan" });
       }
 
-      const changeNumber = `CHG-${new Date().getFullYear()}-${Math.floor(
-        Math.random() * 10000
-      )
-        .toString()
-        .padStart(4, "0")}`;
+      const uploadedFile = await uploadFile(
+        req.file,
+        ticket.ticket_number,
+        "attachment"
+      );
 
       const { data, error } = await supabase
-        .from("ticket_change_links")
+        .from("ticket_attachments")
         .insert({
-          ticket_id: ticket.id,
-          change_id: changeNumber,
-          change_number: changeNumber,
-          status: "pending",
-          created_by: req.user.id,
+          ticket_id: req.params.id,
+          ...uploadedFile,
+          uploaded_by: req.user.id,
         })
         .select()
         .single();
@@ -1711,441 +2601,497 @@ app.post(
       if (error) throw error;
 
       await logTicketActivity(
-        ticket.id,
+        req.params.id,
         req.user.id,
-        "create_change",
-        `Change Request created: ${changeNumber}`
+        "attachment",
+        `File uploaded: ${uploadedFile.file_name}`
       );
 
-      res.json({
+      res.status(201).json({
         success: true,
-        message: "Change Request berhasil dibuat dari ticket",
-        change: {
-          change_number: changeNumber,
-          ticket_id: ticket.id,
-          ticket_number: ticket.ticket_number,
-          status: "pending",
-          created_at: new Date(),
-        },
-        link: data,
+        message: "File berhasil diupload",
+        attachment: data,
       });
     } catch (error) {
-      console.error("Create change error:", error);
+      console.error("Upload attachment error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-/**
- * GET /api/integration/tickets/:id/changes
- * Get semua change request yang terkait dengan ticket
- */
-app.get(
-  "/api/integration/tickets/:id/changes",
-  authenticateToken,
+// ==========================================
+// 7.13. QR CODE SCANNING
+// ==========================================
+v1Router.get("/assets/qr/:qr_code", authenticate, async (req, res) => {
+  try {
+    const qrCode = req.params.qr_code;
+    const userRole = req.user.role;
+
+    const { data: asset, error } = await supabase
+      .from("assets")
+      .select(
+        `
+        *,
+        opd:opd_id(id, name),
+        location:location_id(id, name, address)
+      `
+      )
+      .eq("qr_code", qrCode)
+      .single();
+
+    if (error || !asset) {
+      return res.status(404).json({ error: "Asset tidak ditemukan" });
+    }
+
+    if (userRole === "pengguna") {
+      res.json({
+        success: true,
+        action: "create_ticket",
+        message: "Gunakan informasi ini untuk membuat tiket",
+        asset: {
+          id: asset.id,
+          name: asset.name,
+          type: asset.asset_type,
+          location: asset.location?.name,
+          opd: asset.opd?.name,
+        },
+      });
+    } else if (userRole === "teknisi") {
+      await supabase.from("technician_check_ins").insert({
+        technician_id: req.user.id,
+        asset_id: asset.id,
+        check_in_time: new Date(),
+        qr_code: qrCode,
+      });
+
+      res.json({
+        success: true,
+        action: "technician_check_in",
+        message: "Check-in berhasil",
+        asset: {
+          id: asset.id,
+          name: asset.name,
+          type: asset.asset_type,
+        },
+      });
+    } else {
+      res.status(403).json({ error: "Role tidak valid untuk scan QR" });
+    }
+  } catch (error) {
+    console.error("QR scan error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.14. COMMENTS
+// ==========================================
+v1Router.post("/incidents/:id/comments", authenticate, async (req, res) => {
+  try {
+    const { content, is_internal } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: "Konten komentar harus diisi" });
+    }
+
+    const { data, error } = await supabase
+      .from("ticket_comments")
+      .insert({
+        ticket_id: req.params.id,
+        user_id: req.user.id,
+        content,
+        is_internal: is_internal || false,
+      })
+      .select(`*, user:user_id(id, username, full_name, role)`)
+      .single();
+
+    if (error) throw error;
+
+    await logTicketActivity(
+      req.params.id,
+      req.user.id,
+      "comment",
+      is_internal ? "Added internal note" : "Added comment"
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Komentar berhasil ditambahkan",
+      comment: data,
+    });
+  } catch (error) {
+    console.error("Add comment error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+v1Router.post("/requests/:id/comments", authenticate, async (req, res) => {
+  try {
+    const { content, is_internal } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: "Konten komentar harus diisi" });
+    }
+
+    const { data, error } = await supabase
+      .from("ticket_comments")
+      .insert({
+        ticket_id: req.params.id,
+        user_id: req.user.id,
+        content,
+        is_internal: is_internal || false,
+      })
+      .select(`*, user:user_id(id, username, full_name, role)`)
+      .single();
+
+    if (error) throw error;
+
+    await logTicketActivity(
+      req.params.id,
+      req.user.id,
+      "comment",
+      is_internal ? "Added internal note" : "Added comment"
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Komentar berhasil ditambahkan",
+      comment: data,
+    });
+  } catch (error) {
+    console.error("Add comment error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+// ==========================================
+// 7.15. PROGRESS UPDATES
+// ==========================================
+v1Router.post(
+  "/incidents/:id/progress",
+  authenticate,
+  authorize("tickets.update_progress"),
   async (req, res) => {
     try {
-      const { data, error } = await supabase
-        .from("ticket_change_links")
+      const {
+        update_number,
+        status_change,
+        reason,
+        problem_detail,
+        handling_description,
+        final_solution,
+      } = req.body;
+
+      if (!update_number || !status_change) {
+        return res
+          .status(400)
+          .json({ error: "Update number dan status harus diisi" });
+      }
+
+      const { data: progressUpdate, error } = await supabase
+        .from("ticket_progress_updates")
+        .insert({
+          ticket_id: req.params.id,
+          update_number: parseInt(update_number),
+          updated_by: req.user.id,
+          status_change,
+          reason,
+          problem_detail,
+          handling_description,
+          final_solution,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (status_change === "Ditutup") {
+        await supabase
+          .from("tickets")
+          .update({
+            status: "resolved",
+            resolved_at: new Date(),
+            resolution: final_solution,
+          })
+          .eq("id", req.params.id);
+      } else if (status_change === "Ditangani") {
+        await supabase
+          .from("tickets")
+          .update({ status: "in_progress" })
+          .eq("id", req.params.id);
+      }
+
+      await logTicketActivity(
+        req.params.id,
+        req.user.id,
+        "progress_update",
+        `Progress Update ${update_number}: ${status_change}`
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Progress update berhasil ditambahkan",
+        progress_update: progressUpdate,
+      });
+    } catch (error) {
+      console.error("Update progress error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+v1Router.post(
+  "/requests/:id/progress",
+  authenticate,
+  authorize("tickets.update_progress"),
+  async (req, res) => {
+    try {
+      const { update_number, status_change, notes } = req.body;
+
+      if (!update_number || !status_change) {
+        return res
+          .status(400)
+          .json({ error: "Update number dan status harus diisi" });
+      }
+
+      const { data: progressUpdate, error } = await supabase
+        .from("ticket_progress_updates")
+        .insert({
+          ticket_id: req.params.id,
+          update_number: parseInt(update_number),
+          updated_by: req.user.id,
+          status_change,
+          handling_description: notes,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (status_change === "Selesai") {
+        await supabase
+          .from("tickets")
+          .update({
+            status: "resolved",
+            resolved_at: new Date(),
+          })
+          .eq("id", req.params.id);
+      } else if (status_change === "Dalam Proses") {
+        await supabase
+          .from("tickets")
+          .update({ status: "in_progress" })
+          .eq("id", req.params.id);
+      }
+
+      await logTicketActivity(
+        req.params.id,
+        req.user.id,
+        "progress_update",
+        `Progress Update ${update_number}: ${status_change}`
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Progress update berhasil ditambahkan",
+        progress_update: progressUpdate,
+      });
+    } catch (error) {
+      console.error("Update progress error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+// ==========================================
+// 7.16. AUDIT LOGS
+// ==========================================
+v1Router.get(
+  "/admin/audit-logs",
+  authenticate,
+  authorize("reports.read"),
+  async (req, res) => {
+    try {
+      const {
+        user_id,
+        action,
+        date_from,
+        date_to,
+        page = 1,
+        limit = 100,
+      } = req.query;
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      let query = supabase
+        .from("ticket_logs")
         .select(
           `
-          *,
-          created_by_user:created_by(id, username, full_name)
-        `
+        *,
+        user:user_id(id, username, full_name, role),
+        ticket:ticket_id(ticket_number, title)
+      `,
+          { count: "exact" }
         )
-        .eq("ticket_id", req.params.id)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .range(offset, offset + parseInt(limit) - 1);
 
+      if (user_id) query = query.eq("user_id", user_id);
+      if (action) query = query.eq("action", action);
+      if (date_from) query = query.gte("created_at", date_from);
+      if (date_to) query = query.lte("created_at", date_to);
+
+      const { data, count, error } = await query;
       if (error) throw error;
 
       res.json({
         success: true,
-        count: data.length,
-        changes: data,
-      });
-    } catch (error) {
-      console.error("Get linked changes error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-/**
- * GET /api/integration/tickets/:id/related
- * Get semua data terkait (assets + changes)
- */
-app.get(
-  "/api/integration/tickets/:id/related",
-  authenticateToken,
-  async (req, res) => {
-    try {
-      const { data: assets } = await supabase
-        .from("ticket_asset_links")
-        .select("*")
-        .eq("ticket_id", req.params.id);
-
-      const { data: changes } = await supabase
-        .from("ticket_change_links")
-        .select("*")
-        .eq("ticket_id", req.params.id);
-
-      res.json({
-        success: true,
-        related: {
-          assets: assets || [],
-          changes: changes || [],
-          asset_count: assets ? assets.length : 0,
-          change_count: changes ? changes.length : 0,
+        data,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: count,
+          total_pages: Math.ceil(count / parseInt(limit)),
         },
       });
     } catch (error) {
-      console.error("Get related data error:", error);
+      console.error("Get audit logs error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
-// ============================================
-// 9. WEBHOOK RECEIVERS
-// ============================================
+// ==========================================
+// 7.17. SYSTEM STATS
+// ==========================================
+v1Router.get(
+  "/admin/stats",
+  authenticate,
+  authorize("dashboard.read"),
+  async (req, res) => {
+    try {
+      const { count: totalUsers } = await supabase
+        .from("users")
+        .select("*", { count: "exact", head: true });
 
-/**
- * POST /api/webhooks/asset-status-changed
- * Webhook dari Asset Management
- */
-app.post("/api/webhooks/asset-status-changed", async (req, res) => {
-  try {
-    const webhookSecret = req.headers["x-webhook-secret"];
-    if (webhookSecret !== WEBHOOK_SECRET) {
-      return res.status(401).json({ error: "Unauthorized webhook" });
-    }
+      const { count: totalTickets } = await supabase
+        .from("tickets")
+        .select("*", { count: "exact", head: true });
 
-    const { asset_id, old_status, new_status, changed_by } = req.body;
+      const { count: openTickets } = await supabase
+        .from("tickets")
+        .select("*", { count: "exact", head: true })
+        .in("status", ["open", "assigned", "in_progress"]);
 
-    const { data: links } = await supabase
-      .from("ticket_asset_links")
-      .select(
-        `
-        ticket_id,
-        tickets (
-          id,
-          ticket_number,
-          status,
-          reporter_id
-        )
-      `
-      )
-      .eq("asset_id", asset_id);
+      const { count: totalAssets } = await supabase
+        .from("assets")
+        .select("*", { count: "exact", head: true });
 
-    if (links && links.length > 0) {
-      for (const link of links) {
-        const ticket = link.tickets;
+      const { count: totalKBArticles } = await supabase
+        .from("knowledge_base")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "published");
 
-        if (["open", "in_progress"].includes(ticket.status)) {
-          await supabase.from("ticket_comments").insert({
-            ticket_id: ticket.id,
-            user_id: null,
-            content: `🔔 Asset status changed: ${old_status} → ${new_status}`,
-          });
-
-          await logTicketActivity(
-            ticket.id,
-            null,
-            "asset_update",
-            `Asset ${asset_id} status changed to ${new_status}`
-          );
-
-          if (
-            new_status === "operational" ||
-            new_status === "fixed" ||
-            new_status === "active"
-          ) {
-            await sendNotification(
-              ticket.reporter_id,
-              "Asset Terkait Sudah Diperbaiki",
-              `Asset terkait ticket ${ticket.ticket_number} sudah diperbaiki. Silakan verifikasi dan close ticket jika masalah sudah selesai.`,
-              "success"
-            );
-          }
-        }
-      }
-    }
-
-    res.json({
-      success: true,
-      message: "Webhook processed",
-      affected_tickets: links ? links.length : 0,
-    });
-  } catch (error) {
-    console.error("Webhook error:", error);
-    res.status(500).json({ error: "Webhook processing failed" });
-  }
-});
-
-/**
- * POST /api/webhooks/change-completed
- * Webhook dari Change Management
- */
-app.post("/api/webhooks/change-completed", async (req, res) => {
-  try {
-    const webhookSecret = req.headers["x-webhook-secret"];
-    if (webhookSecret !== WEBHOOK_SECRET) {
-      return res.status(401).json({ error: "Unauthorized webhook" });
-    }
-
-    const { change_id, change_number, status, result } = req.body;
-
-    const { data: link } = await supabase
-      .from("ticket_change_links")
-      .select(
-        `
-        *,
-        tickets (*)
-      `
-      )
-      .eq("change_id", change_id)
-      .single();
-
-    if (link) {
-      const ticket = link.tickets;
-
-      await supabase
-        .from("ticket_change_links")
-        .update({ status: status })
-        .eq("id", link.id);
-
-      await supabase.from("ticket_comments").insert({
-        ticket_id: ticket.id,
-        user_id: null,
-        content: `🔧 Change Request ${change_number} ${status}: ${result}`,
+      res.json({
+        success: true,
+        stats: {
+          total_users: totalUsers,
+          total_tickets: totalTickets,
+          open_tickets: openTickets,
+          total_assets: totalAssets,
+          total_kb_articles: totalKBArticles,
+        },
       });
-
-      if (status === "completed" && result === "success") {
-        if (["open", "in_progress"].includes(ticket.status)) {
-          await supabase
-            .from("tickets")
-            .update({
-              status: "resolved",
-              resolved_at: new Date(),
-              resolution: `Resolved via Change Request ${change_number}`,
-            })
-            .eq("id", ticket.id);
-
-          await sendNotification(
-            ticket.reporter_id,
-            "Ticket Resolved",
-            `Ticket ${ticket.ticket_number} telah di-resolve melalui Change Request ${change_number}`,
-            "success"
-          );
-
-          await logTicketActivity(
-            ticket.id,
-            null,
-            "auto_resolve",
-            `Auto-resolved via Change Request ${change_number}`
-          );
-        }
-      }
+    } catch (error) {
+      console.error("Get system stats error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
     }
-
-    res.json({
-      success: true,
-      message: "Webhook processed",
-    });
-  } catch (error) {
-    console.error("Webhook error:", error);
-    res.status(500).json({ error: "Webhook processing failed" });
   }
-});
+);
 
-/**
- * POST /api/webhooks/high-risk-asset
- * Webhook untuk asset berisiko tinggi
- */
-app.post("/api/webhooks/high-risk-asset", async (req, res) => {
-  try {
-    const webhookSecret = req.headers["x-webhook-secret"];
-    if (webhookSecret !== WEBHOOK_SECRET) {
-      return res.status(401).json({ error: "Unauthorized webhook" });
-    }
+// ===========================================
+// 8. ERROR HANDLING
+// ===========================================
 
-    const { asset_id, asset_name, risk_level, risk_description, opd_id } =
-      req.body;
-
-    const ticketNumber = generateTicketNumber("incident");
-
-    const { data: ticket } = await supabase
-      .from("tickets")
-      .insert({
-        ticket_number: ticketNumber,
-        type: "incident",
-        title: `⚠️ High Risk Asset Alert: ${asset_name}`,
-        description: `Asset ${asset_name} has been flagged as high-risk.\n\nRisk Level: ${risk_level}\nRisk Details:\n${risk_description}\n\nPreventive action required.`,
-        priority: "high",
-        category: "Preventive Maintenance",
-        status: "open",
-        reporter_id: 1,
-        opd_id: opd_id,
-        created_at: new Date(),
-      })
-      .select()
-      .single();
-
-    await supabase.from("ticket_asset_links").insert({
-      ticket_id: ticket.id,
-      asset_id,
-      asset_name,
-      description: "Auto-linked from risk alert",
-      linked_by: 1,
-    });
-
-    const { data: admins } = await supabase
-      .from("users")
-      .select("id")
-      .eq("role", "admin_opd")
-      .eq("opd_id", opd_id);
-
-    for (const admin of admins || []) {
-      await sendNotification(
-        admin.id,
-        "High-Risk Asset Detected",
-        `High-risk asset detected: ${asset_name}. Preventive maintenance ticket created: ${ticketNumber}`,
-        "warning"
-      );
-    }
-
-    res.json({
-      success: true,
-      message: "Preventive ticket created",
-      ticket: ticket,
-    });
-  } catch (error) {
-    console.error("Webhook error:", error);
-    res.status(500).json({ error: "Webhook processing failed" });
-  }
-});
-
-// ============================================
-// 10. HEALTH CHECK
-// ============================================
-
-/**
- * GET /health
- * Health check endpoint
- */
-app.get("/health", async (req, res) => {
-  try {
-    const { error } = await supabase.from("users").select("count").limit(1);
-
-    res.json({
-      status: error ? "unhealthy" : "healthy",
-      timestamp: new Date().toISOString(),
-      database: error ? "error" : "connected",
-      uptime: process.uptime(),
-    });
-  } catch (error) {
-    res.status(503).json({
-      status: "unhealthy",
-      timestamp: new Date().toISOString(),
-      error: error.message,
-    });
-  }
-});
-
-// ============================================
-// ROOT ENDPOINT
-// ============================================
-
-app.get("/", (req, res) => {
-  res.json({
-    message: "Service Desk API - Complete Version",
-    version: "1.0.0",
-    endpoints: {
-      auth: {
-        register: "POST /api/auth/register",
-        login: "POST /api/auth/login",
-        profile: "GET /api/auth/profile",
-      },
-      tickets: {
-        create: "POST /api/tickets",
-        list: "GET /api/tickets",
-        detail: "GET /api/tickets/:id",
-        update: "PUT /api/tickets/:id",
-        assign: "POST /api/tickets/:id/assign",
-        comment: "POST /api/tickets/:id/comments",
-        escalate: "POST /api/tickets/:id/escalate",
-      },
-      users: {
-        list: "GET /api/users",
-        technicians: "GET /api/users/technicians",
-        update: "PUT /api/users/:id",
-      },
-      knowledge_base: {
-        list: "GET /api/knowledge-base",
-        detail: "GET /api/knowledge-base/:id",
-        create: "POST /api/knowledge-base",
-        update: "PUT /api/knowledge-base/:id",
-        helpful: "POST /api/knowledge-base/:id/helpful",
-      },
-      dashboard: {
-        stats: "GET /api/dashboard/stats",
-        recent: "GET /api/dashboard/recent-tickets",
-      },
-      reports: {
-        sla: "GET /api/reports/sla-compliance",
-      },
-      opd: {
-        list: "GET /api/opd",
-        create: "POST /api/opd",
-      },
-      notifications: {
-        list: "GET /api/notifications",
-        mark_read: "PUT /api/notifications/:id/read",
-      },
-      integration: {
-        link_asset: "POST /api/integration/tickets/:id/link-asset",
-        get_assets: "GET /api/integration/tickets/:id/assets",
-        create_change: "POST /api/integration/tickets/:id/create-change",
-        get_changes: "GET /api/integration/tickets/:id/changes",
-        get_related: "GET /api/integration/tickets/:id/related",
-      },
-      webhooks: {
-        asset_status: "POST /api/webhooks/asset-status-changed",
-        change_completed: "POST /api/webhooks/change-completed",
-        high_risk_asset: "POST /api/webhooks/high-risk-asset",
-      },
-    },
-    health: "/health",
-    docs: "/api-docs",
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Endpoint tidak ditemukan",
+    path: req.path,
+    method: req.method,
   });
 });
 
-// ============================================
-// ERROR HANDLER
-// ============================================
-
+// Global Error Handler
 app.use((err, req, res, next) => {
-  console.error("Error:", err);
-  res.status(500).json({
-    error: "Terjadi kesalahan server",
-    message: process.env.NODE_ENV === "development" ? err.message : undefined,
+  console.error("Global error:", err);
+
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({ error: "File terlalu besar. Maksimal 10MB" });
+  }
+
+  if (err.message === "Invalid file type") {
+    return res.status(400).json({ error: "Tipe file tidak didukung" });
+  }
+
+  res.status(err.status || 500).json({
+    error: err.message || "Terjadi kesalahan server",
+    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
   });
 });
 
-// ============================================
-// START SERVER
-// ============================================
-
+// ===========================================
+// 9. SERVER START
+// ===========================================
 app.listen(PORT, () => {
   console.log(`
-
-SERVICE DESK API
-
+================================================================
+🚀 SERVICE DESK API V2.0 - RESTRUCTURED VERSION
+================================================================
 Port: ${PORT}
+Environment: ${process.env.NODE_ENV || "development"}
 Status: ✅ Running
-API Docs: http://localhost:${PORT}/api-docs
-Health: http://localhost:${PORT}/health 
+
+Endpoint Structure (RESTful):
+- /auth/*           : Authentication & Profile
+- /incidents/*      : Incident Management
+- /requests/*       : Service Request Management
+- /catalog          : Service Catalog
+- /kb/*             : Knowledge Base
+- /dashboard        : Dashboard & Analytics
+- /reports/*        : Reports (SLA, Performance)
+- /notifications/*  : Notifications
+- /search           : Global Search
+- /survey           : User Satisfaction Survey
+- /chat/*           : Chat/Helpdesk
+- /sync             : Mobile Offline Sync
+- /admin/*          : Admin Operations
+- /assets/*         : Asset & QR Management
+
+Roles:
+- super_admin       : Full access
+- admin_kota        : City-level admin
+- admin_opd         : Department admin
+- bidang            : Section head (verifier)
+- seksi             : Unit head (recorder)
+- teknisi           : Technician (handler)
+- pengguna          : End user
+
+API Documentation: http://localhost:${PORT}/api-docs
+================================================================
   `);
+});
+
+// ===========================================
+// 10. GRACEFUL SHUTDOWN
+// ===========================================
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully...");
+  process.exit(0);
+});
+
+process.on("SIGINT", () => {
+  console.log("SIGINT received, shutting down gracefully...");
+  process.exit(0);
 });
 
 module.exports = app;
