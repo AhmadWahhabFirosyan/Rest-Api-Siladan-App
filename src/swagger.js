@@ -5,11 +5,10 @@
  * File ini berisi spesifikasi OpenAPI 3.0 untuk app.js V2.0.
  *
  * Diperbarui untuk mencerminkan implementasi di app.js:
- * - Menambahkan endpoint publik: /public/incidents dan /public/opd
- * - Menambahkan endpoint klasifikasi: /incidents/:id/classify
- * - Memisahkan schema input untuk publik (InputCreatePublicIncident) dan internal (InputCreateIncident)
- * - Menghapus urgency/impact dari InputCreateIncident (internal) karena di-handle oleh server.
- * - Melengkapi semua endpoint yang hilang (KB, Reports, Notifications, dll.)
+ * - KRUSIAL: Memperbaiki skema InputCreateRequest agar sesuai app.js
+ * (menghapus catalog_id, opd_id, asset_identifier).
+ * - Menambahkan 'requested_date' ke skema InputCreateRequest sesuai app.js v3.
+ * - (Perbaikan sebelumnya): Response /auth/login, role 'pegawai_opd', 'incident_date' & 'reporter_nik' di publik.
  * =================================================================
  */
 
@@ -38,7 +37,7 @@ const swaggerOptions = {
         description: "Production Server",
       },
     ],
-    // Tags diperbarui dengan "0. Public"
+    // Tags diperbarui (dimulai dari 0)
     tags: [
       {
         name: "0. Public",
@@ -101,7 +100,9 @@ const swaggerOptions = {
             "Otorisasi menggunakan Bearer Token JWT yang didapat dari /auth/login.",
         },
       },
-      // Definisi Skema (Model Data)
+      // ===========================================
+      // DEFINISI SCHEMAS (WAJIB ADA)
+      // ===========================================
       schemas: {
         // --- Skema Input ---
         InputLogin: {
@@ -118,7 +119,8 @@ const swaggerOptions = {
         },
         InputRegister: {
           type: "object",
-          description: "Untuk registrasi publik (/auth/register)",
+          description:
+            "Untuk registrasi publik (/auth/register). Role otomatis 'pengguna'.",
           properties: {
             username: { type: "string", example: "budi.pengguna" },
             email: {
@@ -164,12 +166,11 @@ const swaggerOptions = {
         InputCreateIncident: {
           type: "object",
           description:
-            "Untuk internal (/incidents). Urgency/Impact di-set default oleh server.",
+            "Untuk internal (/incidents) oleh 'pegawai_opd' atau 'admin'. Urgency/Impact di-set default oleh server.",
           properties: {
             title: { type: "string", example: "Printer Mati" },
             description: { type: "string", example: "Printer tidak menyala." },
             category: { type: "string", example: "Hardware" },
-            // urgency dan impact DIHAPUS, di-set server
             incident_location: { type: "string", example: "Lantai 3" },
             incident_date: {
               type: "string",
@@ -180,6 +181,16 @@ const swaggerOptions = {
               type: "integer",
               example: 1,
               description: "Opsional, default diambil dari OPD pelapor",
+            },
+            asset_identifier: {
+              type: "string",
+              description: "Nama aset (teks bebas)",
+              example: "PC-01",
+            },
+            attachment_url: {
+              type: "string",
+              description: "URL file yang sudah di-upload",
+              example: "https://.../printer.jpg",
             },
           },
           required: ["title", "description"],
@@ -196,6 +207,11 @@ const swaggerOptions = {
             },
             category: { type: "string", example: "Fasilitas Publik" },
             incident_location: { type: "string", example: "Jl. Pahlawan" },
+            incident_date: {
+              type: "string",
+              format: "date-time",
+              example: "2025-11-07T10:00:00Z",
+            },
             asset_identifier: {
               type: "string",
               description: "Nama aset (teks bebas)",
@@ -214,9 +230,9 @@ const swaggerOptions = {
             },
             reporter_phone: { type: "string", example: "081298765432" },
             reporter_address: { type: "string", example: "Jl. Mawar No. 10" },
-            reporter_nip: {
+            reporter_nik: {
               type: "string",
-              description: "NIK Pelapor",
+              description: "NIK Pelapor (sesuai app.js)",
               example: "3578...",
             },
             attachment_url: {
@@ -268,29 +284,45 @@ const swaggerOptions = {
           },
           required: ["source_ticket_ids", "target_ticket_id", "reason"],
         },
+        // --- INI PERBAIKANNYA ---
         InputCreateRequest: {
           type: "object",
-          description: "Untuk internal (/requests)",
+          description:
+            "Untuk internal (/requests) oleh 'pegawai_opd' atau 'admin'. OPD ID diambil otomatis dari token user. service_catalog_id diambil otomatis dari service_item_id.",
           properties: {
-            title: { type: "string", example: "Permintaan Akun Email Baru" },
+            title: {
+              type: "string",
+              example: "Reset Password Pegawai",
+            },
             description: {
               type: "string",
-              example: "Mohon dibuatkan akun email untuk pegawai baru.",
+              example: "Lupa password, tidak bisa login ke email.",
             },
-            service_catalog_id: { type: "integer", example: 1 },
-            service_item_id: { type: "integer", example: 10 },
+            service_item_id: {
+              type: "integer",
+              example: 10,
+              description: "ID item layanan yang spesifik (WAJIB)",
+            },
             service_detail: {
               type: "object",
-              example: { nama_pegawai: "Budi" },
+              example: { email_yang_di_reset: "pegawai.lupa@surabaya.go.id" },
             },
-            opd_id: {
-              type: "integer",
-              example: 1,
-              description: "Opsional, default dari pelapor",
+            attachment_url: {
+              type: "string",
+              description: "URL file yang sudah di-upload (Opsional)",
+              example: "https://.../form.pdf",
+            },
+            // --- BARU DARI v3 app.js ---
+            requested_date: {
+              type: "string",
+              format: "date-time",
+              description: "Tanggal permintaan layanan diperlukan (Opsional)",
+              example: "2025-11-20T10:00:00Z",
             },
           },
-          required: ["title", "description", "service_catalog_id"],
+          required: ["title", "description", "service_item_id"],
         },
+        // --- AKHIR PERBAIKAN ---
         InputRequestApproval: {
           type: "object",
           properties: {
@@ -425,9 +457,10 @@ const swaggerOptions = {
                 "bidang",
                 "seksi",
                 "teknisi",
+                "pegawai_opd",
                 "pengguna",
               ],
-              example: "admin_opd",
+              example: "pegawai_opd",
             },
             opd_id: { type: "integer", example: 1 },
             bidang_id: { type: "integer", example: 1 },
@@ -505,6 +538,8 @@ const swaggerOptions = {
         // --- Skema Data (Model) ---
         User: {
           type: "object",
+          description:
+            "Skema User general. Digunakan oleh /auth/me, /auth/register, /admin/users, dll. (Catatan: /auth/login memiliki skema inline sendiri)",
           properties: {
             id: { type: "integer", example: 1 },
             username: { type: "string", example: "admin.kota" },
@@ -514,9 +549,30 @@ const swaggerOptions = {
               example: "admin@pemkot.go.id",
             },
             full_name: { type: "string", example: "Admin Kota" },
+            nip: { type: "string", example: "199001012020011001" },
+            phone: { type: "string", example: "08123456789" },
+            address: { type: "string", example: "Jl. Contoh No. 1" },
             role: { type: "string", example: "admin_kota" },
             opd_id: { type: "integer", example: 1 },
             is_active: { type: "boolean", example: true },
+            // Relasi (bisa null, tergantung endpoint)
+            opd: {
+              type: "object",
+              properties: {
+                id: { type: "integer" },
+                name: { type: "string" },
+                code: { type: "string" },
+              },
+            },
+            bidang: {
+              type: "object",
+              properties: { id: { type: "integer" }, name: { type: "string" } },
+            },
+            seksi: {
+              type: "object",
+              properties: { id: { type: "integer" }, name: { type: "string" } },
+            },
+            created_at: { type: "string", format: "date-time" },
           },
         },
         Ticket: {
@@ -628,9 +684,9 @@ const swaggerOptions = {
       "/public/incidents": {
         post: {
           tags: ["0. Public"],
-          summary: "Buat Insiden Baru (Publik)",
+          summary: "Buat Insiden Baru (Publik / Pengguna Terdaftar)",
           description:
-            "Buat tiket insiden baru TANPA login (untuk masyarakat). Wajib menyertakan data pelapor dan OPD. Urgency/Impact di-set default 'Medium' oleh server.",
+            "Buat tiket insiden baru TANPA login (untuk masyarakat) atau DENGAN login (role 'pengguna'). Wajib menyertakan data pelapor dan OPD. Urgency/Impact di-set default 'Medium' oleh server.",
           requestBody: {
             required: true,
             content: {
@@ -694,7 +750,38 @@ const swaggerOptions = {
                         type: "string",
                         example: "eyJhbGciOiJIUzI1NiIsIn...",
                       },
-                      user: { $ref: "#/components/schemas/User" },
+                      user: {
+                        type: "object",
+                        description: "Data user yang dikembalikan saat login",
+                        properties: {
+                          id: { type: "integer", example: 1 },
+                          username: { type: "string", example: "admin.kota" },
+                          full_name: {
+                            type: "string",
+                            example: "Admin Kota",
+                          },
+                          email: {
+                            type: "string",
+                            example: "admin@pemkot.go.id",
+                          },
+                          nip: {
+                            type: "string",
+                            example: "199001012020011001",
+                          },
+                          phone: { type: "string", example: "08123456789" },
+                          address: {
+                            type: "string",
+                            example: "Jl. Contoh No. 1",
+                          },
+                          role: { type: "string", example: "admin_kota" },
+                          opd_id: { type: "integer", example: 1 },
+                          permissions: {
+                            type: "array",
+                            items: { type: "string" },
+                            example: ["tickets.*", "users.*"],
+                          },
+                        },
+                      },
                     },
                   },
                 },
@@ -786,7 +873,7 @@ const swaggerOptions = {
                     type: "object",
                     properties: {
                       success: { type: "boolean", example: true },
-                      user: { $ref: "#/components/schemas/User" }, // User schema sudah mencakup relasi
+                      user: { $ref: "#/components/schemas/User" }, // Menggunakan skema User general
                     },
                   },
                 },
@@ -864,13 +951,12 @@ const swaggerOptions = {
           tags: ["2. Incidents"],
           summary: "Buat Insiden Baru (Internal)",
           description:
-            "Buat tiket insiden baru (untuk pegawai yang login). Urgency & Impact di-set default 'Medium' oleh server, dan akan diklasifikasi oleh Seksi.",
+            "Buat tiket insiden baru (untuk 'pegawai_opd' atau 'admin' yang login). Memerlukan permission 'incidents.create'. URL Attachment dikirim dalam body ini.",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                // Skema yang sudah diupdate (tanpa urgency/impact)
                 schema: { $ref: "#/components/schemas/InputCreateIncident" },
               },
             },
@@ -1035,21 +1121,25 @@ const swaggerOptions = {
           tags: ["3. Service Requests"],
           summary: "Buat Service Request Baru",
           description:
-            "Membuat tiket permintaan layanan baru dari katalog. Status awal akan 'pending_approval'.",
+            "Membuat tiket permintaan layanan baru dari katalog (untuk 'pegawai_opd' atau 'admin'). Memerlukan permission 'requests.create'. Status awal 'pending_approval'. OPD ID diambil dari token. Catalog ID diambil dari service_item_id.",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputCreateRequest" },
+                schema: { $ref: "#/components/schemas/InputCreateRequest" }, // <-- Skema ini sudah diupdate
               },
             },
           },
           responses: {
             201: { description: "Service request berhasil dibuat" },
-            400: { description: "Data tidak lengkap" },
+            400: {
+              description:
+                "Data tidak lengkap (Title, desc, service_item_id) atau Akun tidak terhubung OPD.",
+            },
             401: { description: "Token tidak ditemukan" },
             403: { description: "Permission tidak cukup" },
+            404: { description: "Service Item tidak ditemukan" },
             500: { description: "Terjadi kesalahan server" },
           },
         },
@@ -1663,76 +1753,6 @@ const swaggerOptions = {
       },
 
       // --- 8. Attachments & Comments ---
-      "/incidents/{id}/attachments": {
-        post: {
-          tags: ["8. Attachments & Comments"],
-          summary: "Upload Attachment ke Insiden",
-          description: "Upload file (jpeg, jpg, png, pdf, dll.) ke insiden.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "multipart/form-data": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    file: { type: "string", format: "binary" },
-                  },
-                },
-              },
-            },
-          },
-          responses: {
-            201: { description: "File berhasil diupload" },
-            400: { description: "File harus diupload atau tipe invalid" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            404: { description: "Ticket tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/requests/{id}/attachments": {
-        post: {
-          tags: ["8. Attachments & Comments"],
-          summary: "Upload Attachment ke Request",
-          description: "Upload file ke service request.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "multipart/form-data": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    file: { type: "string", format: "binary" },
-                  },
-                },
-              },
-            },
-          },
-          responses: {
-            201: { description: "File berhasil diupload" },
-            // Mirip incidents/attachments
-          },
-        },
-      },
       "/incidents/{id}/comments": {
         post: {
           tags: ["8. Attachments & Comments"],
@@ -2138,7 +2158,6 @@ const swaggerOptions = {
   // Karena definisi manual, apis kosong
   apis: [],
 };
-
 // ===========================================
 // EKSPOR
 // ===========================================

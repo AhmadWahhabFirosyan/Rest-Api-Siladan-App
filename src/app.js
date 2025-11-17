@@ -6,7 +6,6 @@ const { createClient } = require("@supabase/supabase-js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
-const multer = require("multer");
 const crypto = require("crypto");
 const swaggerUi = require("swagger-ui-express");
 const { swaggerDocs, swaggerUiOptions } = require("./swagger.js");
@@ -14,13 +13,15 @@ require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-app.get("/", (req, res) => {
+
+app.get("/api/v1", (req, res) => {
   res.json({
     success: true,
-    message: "Welcome to the jungle Chiboy and Darren",
+    message: "Welcome to the jungle Everyone",
     version: "1.0.0",
   });
 });
+
 // Swagger UI
 app.use(
   "/api-docs",
@@ -53,20 +54,6 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
 // ===========================================
 app.use(cors());
 app.use(express.json());
-
-// File upload configuration
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|pdf|doc|docx|xls|xlsx/;
-    const extname = allowedTypes.test(file.originalname.toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    if (extname && mimetype) return cb(null, true);
-    cb(new Error("Invalid file type"));
-  },
-});
 
 // ===========================================
 // 4. RBAC CONFIGURATION
@@ -117,6 +104,7 @@ const RBAC_ROLES = {
     ],
     description: "Kepala Seksi - Recorder",
   },
+  // ... (role teknisi) ...
   teknisi: {
     permissions: [
       "tickets.read",
@@ -127,9 +115,21 @@ const RBAC_ROLES = {
     ],
     description: "Teknisi - Handler",
   },
+  // --- PERBAIKAN 1: Perjelas Role 'pengguna' ---
   pengguna: {
-    permissions: ["tickets.read", "tickets.create", "kb.read"],
-    description: "End User",
+    // --- PERBAIKAN ---
+    permissions: ["tickets.read", "incidents.create", "kb.read"], // Hanya bisa buat insiden
+    description: "Pengguna Publik / Masyarakat (yang terdaftar)",
+  },
+  pegawai_opd: {
+    // --- PERBAIKAN ---
+    permissions: [
+      "tickets.read",
+      "incidents.create",
+      "requests.create",
+      "kb.read",
+    ], // Bisa buat insiden DAN request
+    description: "Pegawai Internal OPD (Non-teknisi)",
   },
 };
 
@@ -239,37 +239,6 @@ const sendNotification = async (
     console.error("Error sending notification:", error);
   }
 };
-
-const uploadFile = async (file, ticketNumber, uploadType) => {
-  try {
-    const fileName = `${ticketNumber}/${uploadType}_${Date.now()}_${
-      file.originalname
-    }`;
-    const { data, error } = await supabase.storage
-      .from("siladan-bucket")
-      .upload(fileName, file.buffer, {
-        contentType: file.mimetype,
-        upsert: false,
-      });
-
-    if (error) throw error;
-
-    const { data: publicUrl } = supabase.storage
-      .from("siladan-bucket")
-      .getPublicUrl(fileName);
-
-    return {
-      file_name: file.originalname,
-      file_url: publicUrl.publicUrl,
-      file_type: file.mimetype,
-      file_size: file.size,
-    };
-  } catch (error) {
-    console.error("File upload error:", error);
-    throw error;
-  }
-};
-
 // ===========================================
 // 6. MIDDLEWARE AUTHENTICATION & AUTHORIZATION
 // ===========================================
@@ -374,6 +343,8 @@ v1Router.post("/auth/login", async (req, res) => {
         full_name: user.full_name,
         email: user.email,
         nip: user.nip,
+        phone: user.phone,
+        address: user.address,
         role: user.role,
         opd_id: user.opd_id,
         permissions: RBAC_ROLES[user.role]?.permissions || [],
@@ -400,10 +371,6 @@ v1Router.post("/auth/register", async (req, res) => {
       phone,
       address,
     } = req.body;
-
-    // Hapus 'role' dan 'opd_id' dari req.body jika ada, untuk keamanan
-    // (Meskipun kita tidak akan menggunakannya)
-
     // Validasi data wajib
     if (!username || !password || !email || !full_name) {
       return res.status(400).json({
@@ -566,27 +533,27 @@ v1Router.post("/auth/forgot-password", async (req, res) => {
 v1Router.post(
   "/incidents",
   authenticate,
-  authorize("tickets.create"),
+  authorize("incidents.create"),
   async (req, res) => {
-    // ... di dalam v1Router.post("/incidents", ...)
     try {
+      // --- PERBAIKAN 1: Ambil key baru dari req.body ---
       const {
         title,
         description,
         category,
-        // urgency dan impact dihapus dari sini
         incident_location,
         incident_date,
         opd_id,
+        asset_identifier, // <--- BARU
+        attachment_url, // <--- BARU
       } = req.body;
 
       if (!title || !description) {
         return res.status(400).json({ error: "Data tidak lengkap" });
       }
 
-      // --- PERBAIKAN LOGIKA ---
-      // Sesuai alur bisnis, pelapor tidak menentukan prioritas.
-      // Kita atur default (misal: 3 = Medium), nanti Seksi yang akan mengklasifikasi.
+      // Sesuai alur bisnis, pelapor (pegawai) tidak menentukan prioritas.
+      // Di-set default 'Medium', nanti Seksi yang akan mengklasifikasi.
       const urgencyVal = 3;
       const impactVal = 3;
       // --- AKHIR PERBAIKAN ---
@@ -595,12 +562,17 @@ v1Router.post(
         calculatePriority(urgencyVal, impactVal);
 
       const ticketNumber = generateTicketNumber("incident");
+
+      // opd_id (jika dikirim) akan diutamakan,
+      // jika tidak, ambil dari token (req.user.opd_id)
       const targetOpdId = opd_id || req.user.opd_id;
+
+      const creationTime = new Date();
 
       const slaData = await calculateSLADue(
         priorityCategory,
         targetOpdId,
-        new Date()
+        creationTime
       );
 
       const { data: reporter } = await supabase
@@ -609,6 +581,7 @@ v1Router.post(
         .eq("id", req.user.id)
         .single();
 
+      // --- PERBAIKAN 2: Masukkan data baru ke query insert ---
       const { data: ticket, error } = await supabase
         .from("tickets")
         .insert({
@@ -622,12 +595,18 @@ v1Router.post(
           priority: priorityCategory,
           category: category || "Umum",
           incident_location,
-          incident_date,
+          incident_date: incident_date || null, // <--- Ditambahkan
           opd_id: targetOpdId,
-          reporter_id: req.user.id,
+          reporter_id: req.user.id, // <--- Diambil dari token
           reporter_nip: reporter?.nip,
           status: "open",
           ...slaData,
+
+          // --- Kolom Baru (menggunakan kolom yang sama dengan publik) ---
+          asset_name_reported: asset_identifier || null,
+          reporter_attachment_url: attachment_url || null,
+
+          created_at: creationTime,
         })
         .select()
         .single();
@@ -656,7 +635,7 @@ v1Router.post(
   // TANPA authenticate, TANPA authorize
   async (req, res) => {
     try {
-      // Ambil payload baru yang sudah diperbaiki
+      // Ambil payload, 'reporter_nip' diganti 'reporter_nik'
       const {
         title,
         description,
@@ -664,14 +643,14 @@ v1Router.post(
         incident_location,
         incident_date,
         opd_id,
-        asset_identifier, // <--- Ini adalah NAMA ASET (teks)
+        asset_identifier,
         // Data Pelapor Publik
         reporter_name,
         reporter_email,
         reporter_phone,
         reporter_address,
-        reporter_nip, // NIK
-        attachment_url, // <--- Ini adalah URL file yang sudah di-upload
+        reporter_nik,
+        attachment_url,
       } = req.body;
 
       // Validasi ketat
@@ -697,14 +676,16 @@ v1Router.post(
 
       const ticketNumber = generateTicketNumber("incident");
 
+      const creationTime = new Date(); // Ini adalah 'created_at'
+
       // Hitung SLA
       const slaData = await calculateSLADue(
         priorityCategory,
         opd_id,
-        new Date()
+        creationTime // SLA dihitung dari KAPAN TIKET DIBUAT
       );
 
-      // Insert ke database dengan kolom baru
+      // Insert ke database
       const { data: ticket, error } = await supabase
         .from("tickets")
         .insert({
@@ -718,10 +699,11 @@ v1Router.post(
           priority: priorityCategory,
           category: category || "Umum",
           incident_location,
-          incident_date,
+          incident_date: incident_date || null,
           opd_id: opd_id,
           reporter_id: null,
-          reporter_nip: reporter_nip || null,
+          // --- PERBAIKAN 2: Simpan 'reporter_nik' (dari body) ke kolom 'reporter_nip' (di DB)
+          reporter_nip: reporter_nik || null,
           status: "open",
           ...slaData,
 
@@ -730,8 +712,10 @@ v1Router.post(
           reporter_email: reporter_email,
           reporter_phone: reporter_phone,
           reporter_address: reporter_address || null,
-          asset_name_reported: asset_identifier || null, // <--- Menyimpan nama aset (teks)
-          reporter_attachment_url: attachment_url || null, // <--- Menyimpan URL lampiran
+          asset_name_reported: asset_identifier || null,
+          reporter_attachment_url: attachment_url || null,
+
+          created_at: creationTime,
         })
         .select()
         .single();
@@ -806,9 +790,10 @@ v1Router.get("/incidents", authenticate, async (req, res) => {
       .range(offset, offset + parseInt(limit) - 1);
 
     // Role-based filtering
-    if (req.user.role === "pengguna") {
+    if (req.user.role === "pengguna" || req.user.role === "pegawai_opd") {
       query = query.eq("reporter_id", req.user.id);
     } else if (req.user.role === "teknisi") {
+      // ...
       query = query.eq("assigned_to", req.user.id);
     } else if (["admin_opd", "bidang", "seksi"].includes(req.user.role)) {
       query = query.eq("opd_id", req.user.opd_id);
@@ -1152,24 +1137,47 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
 v1Router.post(
   "/requests",
   authenticate,
-  authorize("tickets.create"),
+  authorize("requests.create"), // Izin ini sudah benar
   async (req, res) => {
     try {
+      // --- PERBAIKAN 1: Ambil data baru ---
       const {
         title,
         description,
-        service_catalog_id,
         service_item_id,
         service_detail,
-        opd_id,
+        attachment_url,
+        requested_date,
       } = req.body;
 
-      if (!title || !description || !service_catalog_id) {
-        return res.status(400).json({ error: "Data tidak lengkap" });
+      if (!title || !description || !service_item_id) {
+        return res.status(400).json({
+          error: "Title, description, dan service_item_id tidak boleh kosong",
+        });
+      }
+
+      const targetOpdId = req.user.opd_id;
+
+      if (!targetOpdId) {
+        return res
+          .status(400)
+          .json({ error: "Akun Anda tidak terhubung ke OPD manapun." });
+      }
+
+      const { data: itemData, error: itemError } = await supabase
+        .from("service_items")
+        .select("catalog_id")
+        .eq("id", service_item_id)
+        .single();
+
+      if (itemError || !itemData) {
+        return res
+          .status(404)
+          .json({ error: "Service Item (Layanan) tidak ditemukan" });
       }
 
       const ticketNumber = generateTicketNumber("request");
-      const targetOpdId = opd_id || req.user.opd_id;
+      const creationTime = new Date();
 
       const { data: reporter } = await supabase
         .from("users")
@@ -1177,6 +1185,15 @@ v1Router.post(
         .eq("id", req.user.id)
         .single();
 
+      const priorityCategory = "medium";
+
+      const slaData = await calculateSLADue(
+        priorityCategory,
+        targetOpdId,
+        creationTime
+      );
+
+      // --- PERBAIKAN 2: Tambahkan field baru ke insert ---
       const { data: ticket, error } = await supabase
         .from("tickets")
         .insert({
@@ -1184,14 +1201,19 @@ v1Router.post(
           type: "request",
           title,
           description,
-          service_catalog_id,
-          service_item_id,
-          service_detail,
+          service_catalog_id: itemData.catalog_id,
+          service_item_id: service_item_id,
+          service_detail: service_detail,
           opd_id: targetOpdId,
           reporter_id: req.user.id,
           reporter_nip: reporter?.nip,
           status: "pending_approval",
-          priority: "medium",
+          priority: priorityCategory,
+          ...slaData,
+
+          reporter_attachment_url: attachment_url || null,
+          requested_date: requested_date || null, // <--- BARU: Simpan tanggal permintaan
+          created_at: creationTime,
         })
         .select()
         .single();
@@ -1241,7 +1263,7 @@ v1Router.get("/requests", authenticate, async (req, res) => {
       .range(offset, offset + parseInt(limit) - 1);
 
     // Role-based filtering
-    if (req.user.role === "pengguna") {
+    if (req.user.role === "pengguna" || req.user.role === "pegawai_opd") {
       query = query.eq("reporter_id", req.user.id);
     } else if (req.user.role === "teknisi") {
       query = query.eq("assigned_to", req.user.id);
@@ -1305,7 +1327,10 @@ v1Router.get(
           .json({ error: "Service request tidak ditemukan" });
       }
 
-      if (req.user.role === "pengguna" && ticket.reporter_id !== req.user.id) {
+      if (
+        (req.user.role === "pengguna" || req.user.role === "pegawai_opd") &&
+        ticket.reporter_id !== req.user.id
+      ) {
         return res.status(403).json({ error: "Akses ditolak" });
       }
 
@@ -2502,124 +2527,6 @@ v1Router.post("/admin/technicians/check-in", authenticate, async (req, res) => {
 });
 
 // ==========================================
-// 7.12. FILE ATTACHMENTS
-// ==========================================
-v1Router.post(
-  "/incidents/:id/attachments",
-  authenticate,
-  upload.single("file"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "File harus diupload" });
-      }
-
-      const { data: ticket } = await supabase
-        .from("tickets")
-        .select("ticket_number")
-        .eq("id", req.params.id)
-        .single();
-
-      if (!ticket) {
-        return res.status(404).json({ error: "Ticket tidak ditemukan" });
-      }
-
-      const uploadedFile = await uploadFile(
-        req.file,
-        ticket.ticket_number,
-        "attachment"
-      );
-
-      const { data, error } = await supabase
-        .from("ticket_attachments")
-        .insert({
-          ticket_id: req.params.id,
-          ...uploadedFile,
-          uploaded_by: req.user.id,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      await logTicketActivity(
-        req.params.id,
-        req.user.id,
-        "attachment",
-        `File uploaded: ${uploadedFile.file_name}`
-      );
-
-      res.status(201).json({
-        success: true,
-        message: "File berhasil diupload",
-        attachment: data,
-      });
-    } catch (error) {
-      console.error("Upload attachment error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-v1Router.post(
-  "/requests/:id/attachments",
-  authenticate,
-  upload.single("file"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "File harus diupload" });
-      }
-
-      const { data: ticket } = await supabase
-        .from("tickets")
-        .select("ticket_number")
-        .eq("id", req.params.id)
-        .eq("type", "request")
-        .single();
-
-      if (!ticket) {
-        return res.status(404).json({ error: "Request tidak ditemukan" });
-      }
-
-      const uploadedFile = await uploadFile(
-        req.file,
-        ticket.ticket_number,
-        "attachment"
-      );
-
-      const { data, error } = await supabase
-        .from("ticket_attachments")
-        .insert({
-          ticket_id: req.params.id,
-          ...uploadedFile,
-          uploaded_by: req.user.id,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      await logTicketActivity(
-        req.params.id,
-        req.user.id,
-        "attachment",
-        `File uploaded: ${uploadedFile.file_name}`
-      );
-
-      res.status(201).json({
-        success: true,
-        message: "File berhasil diupload",
-        attachment: data,
-      });
-    } catch (error) {
-      console.error("Upload attachment error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-// ==========================================
 // 7.13. QR CODE SCANNING
 // ==========================================
 v1Router.get("/assets/qr/:qr_code", authenticate, async (req, res) => {
@@ -3015,7 +2922,8 @@ v1Router.get(
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({
-    error: "Endpoint tidak ditemukan",
+    error:
+      "Salah Kocak wkwkwkw , BASE URL YANG INI YA: https://manpro-473802.et.r.appspot.com/api/v1",
     path: req.path,
     method: req.method,
   });
@@ -3045,28 +2953,11 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`
 ================================================================
-🚀 SERVICE DESK API V2.0 - RESTRUCTURED VERSION
+🚀 SERVICE DESK API V2.0
 ================================================================
 Port: ${PORT}
 Environment: ${process.env.NODE_ENV || "development"}
 Status: ✅ Running
-
-Endpoint Structure (RESTful):
-- /auth/*           : Authentication & Profile
-- /incidents/*      : Incident Management
-- /requests/*       : Service Request Management
-- /catalog          : Service Catalog
-- /kb/*             : Knowledge Base
-- /dashboard        : Dashboard & Analytics
-- /reports/*        : Reports (SLA, Performance)
-- /notifications/*  : Notifications
-- /search           : Global Search
-- /survey           : User Satisfaction Survey
-- /chat/*           : Chat/Helpdesk
-- /sync             : Mobile Offline Sync
-- /admin/*          : Admin Operations
-- /assets/*         : Asset & QR Management
-
 Roles:
 - super_admin       : Full access
 - admin_kota        : City-level admin
@@ -3074,6 +2965,7 @@ Roles:
 - bidang            : Section head (verifier)
 - seksi             : Unit head (recorder)
 - teknisi           : Technician (handler)
+- pegawai_opd       : Ya pegawai
 - pengguna          : End user
 
 API Documentation: http://localhost:${PORT}/api-docs
