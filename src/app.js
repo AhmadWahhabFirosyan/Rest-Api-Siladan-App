@@ -1095,37 +1095,61 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
       .order("display_order");
 
     if (opd_id) query = query.eq("opd_id", opd_id);
-    if (is_active !== undefined)
-      query = query.eq("is_active", is_active === "true");
+    if (is_active !== undefined) {
+      const isActiveValue = is_active === "true" || is_active === '"true"';
+      query = query.eq("is_active", isActiveValue);
+    }
 
     const { data: catalogs, error } = await query;
     if (error) throw error;
 
     for (const catalog of catalogs || []) {
-      const { data: items } = await supabase
+      // --- PERBAIKAN 1: Hanya pilih kolom yang Anda butuhkan ---
+      const { data: items, error: itemsError } = await supabase
         .from("service_items")
-        .select("*")
+        .select(
+          "id, parent_item_id, item_name, item_level, description, approval_required"
+        ) // <-- Hanya pilih kolom ini
         .eq("catalog_id", catalog.id)
         .eq("is_active", true)
         .order("display_order");
 
-      const subLayanan =
+      if (itemsError) throw itemsError;
+
+      const subLayanan_raw =
         items?.filter(
           (i) => i.item_level === "sub_layanan" && !i.parent_item_id
         ) || [];
 
-      for (const sub of subLayanan) {
-        sub.detail_layanan =
+      const subLayanan_final = subLayanan_raw.map((sub) => {
+        // Ambil item Level 3 (mentah)
+        const level3_items_raw =
           items?.filter((i) => i.parent_item_id === sub.id) || [];
-      }
 
-      catalog.sub_layanan = subLayanan;
+        // --- PERBAIKAN 2: "Bersihkan" data Level 3 ---
+        const level3_items_final = level3_items_raw.map((item) => ({
+          id: item.id,
+          item_name: item.item_name,
+          // Frontend HANYA butuh ini untuk dropdown Level 3
+        }));
+        // --- AKHIR PERBAIKAN 2 ---
+
+        return {
+          id: sub.id,
+          sub_catalog_name: sub.item_name,
+          service_items: level3_items_final, // <-- Kirim data yang sudah bersih
+          description: sub.description,
+          approval_required: sub.approval_required,
+        };
+      });
+
+      catalog.sub_layanan = subLayanan_final;
       catalog.total_items = items?.length || 0;
     }
 
     res.json({
       success: true,
-      count: catalogs?.length || 0,
+      count: catalogs?.length || 0, // <-- Ini juga memperbaiki 'count: 0' Anda
       catalogs: catalogs || [],
     });
   } catch (error) {

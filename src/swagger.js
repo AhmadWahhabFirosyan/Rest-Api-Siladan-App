@@ -5,10 +5,10 @@
  * File ini berisi spesifikasi OpenAPI 3.0 untuk app.js V2.0.
  *
  * Diperbarui untuk mencerminkan implementasi di app.js:
- * - KRUSIAL: Memperbaiki skema InputCreateRequest agar sesuai app.js
- * (menghapus catalog_id, opd_id, asset_identifier).
- * - Menambahkan 'requested_date' ke skema InputCreateRequest sesuai app.js v3.
- * - (Perbaikan sebelumnya): Response /auth/login, role 'pegawai_opd', 'incident_date' & 'reporter_nik' di publik.
+ * - PERBAIKAN: Mengubah skema 'ServiceCatalog' untuk 'GET /catalog'
+ * - Mengubah key 'item_name' -> 'sub_catalog_name'
+ * - Mengubah array children -> 'service_items'
+ * - (Perbaikan sebelumnya): InputCreateRequest, Response /auth/login, role 'pegawai_opd', 'incident_date' & 'reporter_nik' di publik.
  * =================================================================
  */
 
@@ -284,7 +284,6 @@ const swaggerOptions = {
           },
           required: ["source_ticket_ids", "target_ticket_id", "reason"],
         },
-        // --- INI PERBAIKANNYA ---
         InputCreateRequest: {
           type: "object",
           description:
@@ -312,7 +311,6 @@ const swaggerOptions = {
               description: "URL file yang sudah di-upload (Opsional)",
               example: "https://.../form.pdf",
             },
-            // --- BARU DARI v3 app.js ---
             requested_date: {
               type: "string",
               format: "date-time",
@@ -322,7 +320,6 @@ const swaggerOptions = {
           },
           required: ["title", "description", "service_item_id"],
         },
-        // --- AKHIR PERBAIKAN ---
         InputRequestApproval: {
           type: "object",
           properties: {
@@ -535,7 +532,87 @@ const swaggerOptions = {
             longitude: { type: "number", example: 106.8456 },
           },
         },
+
         // --- Skema Data (Model) ---
+
+        // --- PERBAIKAN: Skema baru untuk item Level 3 di GET /catalog ---
+        ServiceItemBasic: {
+          type: "object",
+          description: "Detail item layanan dasar (Level 3) untuk dropdown",
+          properties: {
+            id: { type: "integer", example: 11 },
+            item_name: { type: "string", example: "Buat Akun Email" },
+          },
+        },
+
+        // --- PERBAIKAN: Skema ServiceCatalog di-update ---
+        ServiceCatalog: {
+          type: "object",
+          description:
+            "Model data untuk Katalog Layanan (Level 1) dan anak-anaknya yang sudah di-map, sesuai respons GET /catalog",
+          properties: {
+            id: { type: "integer", example: 1 },
+            opd_id: { type: "integer" },
+            catalog_name: { type: "string", example: "Layanan IT" },
+            catalog_code: { type: "string" },
+            description: { type: "string", example: "Deskripsi" },
+            icon: { type: "string" },
+            display_order: { type: "integer" },
+            is_active: { type: "boolean" },
+            created_at: { type: "string", format: "date-time" },
+            total_items: { type: "integer", example: 5 },
+
+            // Ini adalah struktur baru yang dikirim oleh app.js v4
+            sub_layanan: {
+              type: "array",
+              description:
+                "Struktur sub-layanan yang sudah di-mapping (Level 2)",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "integer", example: 10 },
+                  sub_catalog_name: {
+                    type: "string",
+                    example: "Layanan Email",
+                  }, // Key diubah
+                  description: { type: "string" },
+                  approval_required: { type: "boolean" },
+                  service_items: {
+                    type: "array",
+                    description:
+                      "Detail layanan di dalam sub-layanan (Level 3)",
+                    items: { $ref: "#/components/schemas/ServiceItemBasic" }, // Ref ke skema baru
+                  },
+                },
+              },
+            },
+          },
+        },
+
+        // Skema ini adalah model DB, biarkan saja untuk referensi
+        ServiceItem: {
+          type: "object",
+          description:
+            "Model data (dari DB) untuk satu item layanan (Level 2 atau 3)",
+          properties: {
+            id: { type: "integer" },
+            catalog_id: { type: "integer" },
+            parent_item_id: { type: "integer" },
+            item_name: { type: "string" },
+            item_code: { type: "string" },
+            item_level: { type: "string" },
+            description: { type: "string" },
+            required_fields: { type: "object" },
+            estimated_duration: { type: "integer" },
+            approval_required: { type: "boolean" },
+            approval_levels: { type: "object" },
+            default_urgency: { type: "integer" },
+            default_impact: { type: "integer" },
+            display_order: { type: "integer" },
+            is_active: { type: "boolean" },
+            created_at: { type: "string", format: "date-time" },
+          },
+        },
         User: {
           type: "object",
           description:
@@ -596,15 +673,6 @@ const swaggerOptions = {
             reporter_address: { type: "string" },
             asset_name_reported: { type: "string" },
             reporter_attachment_url: { type: "string" },
-          },
-        },
-        ServiceCatalog: {
-          type: "object",
-          properties: {
-            id: { type: "integer", example: 1 },
-            catalog_name: { type: "string", example: "Layanan IT" },
-            description: { type: "string", example: "Deskripsi" },
-            sub_layanan: { type: "array", items: { type: "object" } },
           },
         },
         Asset: {
@@ -1127,7 +1195,7 @@ const swaggerOptions = {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputCreateRequest" }, // <-- Skema ini sudah diupdate
+                schema: { $ref: "#/components/schemas/InputCreateRequest" },
               },
             },
           },
@@ -1298,7 +1366,8 @@ const swaggerOptions = {
         get: {
           tags: ["4. Service Catalog"],
           summary: "Dapatkan Daftar Katalog Layanan",
-          description: "Daftar katalog dengan sub_layanan dan detail.",
+          description:
+            "Daftar katalog dengan sub_layanan dan detail (struktur baru).",
           security: [{ bearerAuth: [] }],
           parameters: [
             { name: "opd_id", in: "query", schema: { type: "integer" } },
@@ -1306,7 +1375,7 @@ const swaggerOptions = {
           ],
           responses: {
             200: {
-              description: "Daftar katalog",
+              description: "Daftar katalog (dengan struktur mapping baru)",
               content: {
                 "application/json": {
                   schema: {
@@ -1316,7 +1385,7 @@ const swaggerOptions = {
                       count: { type: "integer" },
                       catalogs: {
                         type: "array",
-                        items: { $ref: "#/components/schemas/ServiceCatalog" },
+                        items: { $ref: "#/components/schemas/ServiceCatalog" }, // <-- Skema ini sudah diupdate
                       },
                     },
                   },
