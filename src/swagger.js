@@ -1,20 +1,5 @@
-/**
- * =================================================================
- * DOKUMENTASI SWAGGER UNTUK SERVICE DESK API V2.0
- * =================================================================
- * File ini berisi spesifikasi OpenAPI 3.0 untuk app.js V2.0.
- *
- * Diperbarui untuk mencerminkan implementasi di app.js:
- * - PERBAIKAN: Mengubah skema 'ServiceCatalog' untuk 'GET /catalog'
- * - Mengubah key 'item_name' -> 'sub_catalog_name'
- * - Mengubah array children -> 'service_items'
- * - (Perbaikan sebelumnya): InputCreateRequest, Response /auth/login, role 'pegawai_opd', 'incident_date' & 'reporter_nik' di publik.
- * =================================================================
- */
-
 const swaggerJsDoc = require("swagger-jsdoc");
 
-// Opsi konfigurasi untuk swagger-jsdoc
 const swaggerOptions = {
   definition: {
     openapi: "3.0.0",
@@ -37,7 +22,6 @@ const swaggerOptions = {
         description: "Production Server",
       },
     ],
-    // Tags diperbarui (dimulai dari 0)
     tags: [
       {
         name: "0. Public",
@@ -89,7 +73,6 @@ const swaggerOptions = {
         description: "Endpoint lain-lain (Sync, Chat, Survey, Search)",
       },
     ],
-    // Definisi Keamanan (JWT)
     components: {
       securitySchemes: {
         bearerAuth: {
@@ -100,9 +83,6 @@ const swaggerOptions = {
             "Otorisasi menggunakan Bearer Token JWT yang didapat dari /auth/login.",
         },
       },
-      // ===========================================
-      // DEFINISI SCHEMAS (WAJIB ADA)
-      // ===========================================
       schemas: {
         // --- Skema Input ---
         InputLogin: {
@@ -289,13 +269,10 @@ const swaggerOptions = {
           description:
             "Untuk internal (/requests) oleh 'pegawai_opd' atau 'admin'. OPD ID diambil otomatis dari token user. service_catalog_id diambil otomatis dari service_item_id.",
           properties: {
-            title: {
-              type: "string",
-              example: "Reset Password Pegawai",
-            },
+            title: { type: "string", example: "Permintaan Akun Email Baru" },
             description: {
               type: "string",
-              example: "Lupa password, tidak bisa login ke email.",
+              example: "Mohon dibuatkan akun email untuk pegawai baru.",
             },
             service_item_id: {
               type: "integer",
@@ -535,7 +512,6 @@ const swaggerOptions = {
 
         // --- Skema Data (Model) ---
 
-        // --- PERBAIKAN: Skema baru untuk item Level 3 di GET /catalog ---
         ServiceItemBasic: {
           type: "object",
           description: "Detail item layanan dasar (Level 3) untuk dropdown",
@@ -544,12 +520,10 @@ const swaggerOptions = {
             item_name: { type: "string", example: "Buat Akun Email" },
           },
         },
-
-        // --- PERBAIKAN: Skema ServiceCatalog di-update ---
         ServiceCatalog: {
           type: "object",
           description:
-            "Model data untuk Katalog Layanan (Level 1) dan anak-anaknya yang sudah di-map, sesuai respons GET /catalog",
+            "Model data untuk Katalog Layanan (Level 1) dan anak-anaknya yang sudah di-map",
           properties: {
             id: { type: "integer", example: 1 },
             opd_id: { type: "integer" },
@@ -561,12 +535,9 @@ const swaggerOptions = {
             is_active: { type: "boolean" },
             created_at: { type: "string", format: "date-time" },
             total_items: { type: "integer", example: 5 },
-
-            // Ini adalah struktur baru yang dikirim oleh app.js v4
             sub_layanan: {
               type: "array",
-              description:
-                "Struktur sub-layanan yang sudah di-mapping (Level 2)",
+              description: "Struktur sub-layanan (Level 2)",
               items: {
                 type: "object",
                 properties: {
@@ -574,49 +545,22 @@ const swaggerOptions = {
                   sub_catalog_name: {
                     type: "string",
                     example: "Layanan Email",
-                  }, // Key diubah
+                  },
                   description: { type: "string" },
                   approval_required: { type: "boolean" },
                   service_items: {
                     type: "array",
-                    description:
-                      "Detail layanan di dalam sub-layanan (Level 3)",
-                    items: { $ref: "#/components/schemas/ServiceItemBasic" }, // Ref ke skema baru
+                    description: "Detail layanan (Level 3)",
+                    items: { $ref: "#/components/schemas/ServiceItemBasic" },
                   },
                 },
               },
             },
           },
         },
-
-        // Skema ini adalah model DB, biarkan saja untuk referensi
-        ServiceItem: {
-          type: "object",
-          description:
-            "Model data (dari DB) untuk satu item layanan (Level 2 atau 3)",
-          properties: {
-            id: { type: "integer" },
-            catalog_id: { type: "integer" },
-            parent_item_id: { type: "integer" },
-            item_name: { type: "string" },
-            item_code: { type: "string" },
-            item_level: { type: "string" },
-            description: { type: "string" },
-            required_fields: { type: "object" },
-            estimated_duration: { type: "integer" },
-            approval_required: { type: "boolean" },
-            approval_levels: { type: "object" },
-            default_urgency: { type: "integer" },
-            default_impact: { type: "integer" },
-            display_order: { type: "integer" },
-            is_active: { type: "boolean" },
-            created_at: { type: "string", format: "date-time" },
-          },
-        },
         User: {
           type: "object",
-          description:
-            "Skema User general. Digunakan oleh /auth/me, /auth/register, /admin/users, dll. (Catatan: /auth/login memiliki skema inline sendiri)",
+          description: "Skema User general",
           properties: {
             id: { type: "integer", example: 1 },
             username: { type: "string", example: "admin.kota" },
@@ -632,7 +576,6 @@ const swaggerOptions = {
             role: { type: "string", example: "admin_kota" },
             opd_id: { type: "integer", example: 1 },
             is_active: { type: "boolean", example: true },
-            // Relasi (bisa null, tergantung endpoint)
             opd: {
               type: "object",
               properties: {
@@ -652,29 +595,61 @@ const swaggerOptions = {
             created_at: { type: "string", format: "date-time" },
           },
         },
+        // --- PERBAIKAN: Ticket Schema Lengkap (Gabungan Incident & Request) ---
         Ticket: {
           type: "object",
+          description:
+            "Model Ticket lengkap. Mencakup field dari Incident, Request, dan field server-generated.",
           properties: {
             id: { type: "integer", example: 101 },
             ticket_number: { type: "string", example: "INC-2025-001" },
             type: { type: "string", example: "incident" },
             title: { type: "string", example: "Printer Mati" },
-            priority: { type: "string", example: "medium" },
+            description: { type: "string" },
             status: { type: "string", example: "open" },
+            priority: { type: "string", example: "medium" },
+            priority_score: { type: "integer", example: 9 },
+            urgency: { type: "integer", example: 3 },
+            impact: { type: "integer", example: 3 },
+            category: { type: "string", example: "Hardware" },
+
+            // Field Relasi
             opd_id: { type: "integer", example: 1 },
             reporter_id: { type: "integer", example: 50 },
             assigned_to: { type: "integer", example: 25 },
+            service_catalog_id: { type: "integer" },
+            service_item_id: { type: "integer" },
+
+            // Field Waktu & SLA
             created_at: { type: "string", format: "date-time" },
+            updated_at: { type: "string", format: "date-time" },
             sla_due: { type: "string", format: "date-time" },
-            // Kolom pelapor publik
+            sla_target_date: { type: "string", format: "date" },
+            sla_target_time: { type: "string", example: "14:00:00" },
+            sla_breached: { type: "boolean", example: false },
+            resolved_at: { type: "string", format: "date-time" },
+            closed_at: { type: "string", format: "date-time" },
+
+            // Field Khusus Incident
+            incident_location: { type: "string" },
+            incident_date: { type: "string", format: "date-time" },
+
+            // Field Khusus Request
+            service_detail: { type: "object" },
+            requested_date: { type: "string", format: "date-time" },
+
+            // Field Pelapor Publik
             reporter_name: { type: "string", example: "Warga Peduli" },
             reporter_email: { type: "string", example: "warga@gmail.com" },
             reporter_phone: { type: "string", example: "0812..." },
             reporter_address: { type: "string" },
+            reporter_nip: { type: "string" }, // Internal
+            reporter_nik: { type: "string" }, // Publik (tergantung endpoint)
             asset_name_reported: { type: "string" },
             reporter_attachment_url: { type: "string" },
           },
         },
+        // ------------------------------------------------------------
         Asset: {
           type: "object",
           properties: {
@@ -691,7 +666,6 @@ const swaggerOptions = {
             name: { type: "string", example: "Dinas Kominfo" },
           },
         },
-        // --- Skema Error ---
         ApiError: {
           type: "object",
           properties: {
@@ -754,7 +728,7 @@ const swaggerOptions = {
           tags: ["0. Public"],
           summary: "Buat Insiden Baru (Publik / Pengguna Terdaftar)",
           description:
-            "Buat tiket insiden baru TANPA login (untuk masyarakat) atau DENGAN login (role 'pengguna'). Wajib menyertakan data pelapor dan OPD. Urgency/Impact di-set default 'Medium' oleh server.",
+            "Buat tiket insiden baru TANPA login (untuk masyarakat) atau DENGAN login (role 'pengguna'). Wajib menyertakan data pelapor dan OPD.",
           requestBody: {
             required: true,
             content: {
@@ -778,6 +752,7 @@ const swaggerOptions = {
                         type: "string",
                         example: "Insiden berhasil dilaporkan",
                       },
+                      // Menggunakan ref Ticket yang sudah lengkap
                       ticket: { $ref: "#/components/schemas/Ticket" },
                     },
                   },
@@ -824,10 +799,7 @@ const swaggerOptions = {
                         properties: {
                           id: { type: "integer", example: 1 },
                           username: { type: "string", example: "admin.kota" },
-                          full_name: {
-                            type: "string",
-                            example: "Admin Kota",
-                          },
+                          full_name: { type: "string", example: "Admin Kota" },
                           email: {
                             type: "string",
                             example: "admin@pemkot.go.id",
@@ -861,6 +833,7 @@ const swaggerOptions = {
           },
         },
       },
+      // ... (Auth endpoints lain sama)
       "/auth/register": {
         post: {
           tags: ["1. Authentication"],
@@ -941,7 +914,7 @@ const swaggerOptions = {
                     type: "object",
                     properties: {
                       success: { type: "boolean", example: true },
-                      user: { $ref: "#/components/schemas/User" }, // Menggunakan skema User general
+                      user: { $ref: "#/components/schemas/User" },
                     },
                   },
                 },
@@ -1019,7 +992,7 @@ const swaggerOptions = {
           tags: ["2. Incidents"],
           summary: "Buat Insiden Baru (Internal)",
           description:
-            "Buat tiket insiden baru (untuk 'pegawai_opd' atau 'admin' yang login). Memerlukan permission 'incidents.create'. URL Attachment dikirim dalam body ini.",
+            "Buat tiket insiden baru (untuk 'pegawai_opd' atau 'admin' yang login).",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1030,7 +1003,24 @@ const swaggerOptions = {
             },
           },
           responses: {
-            201: { description: "Incident berhasil dibuat" },
+            201: {
+              description: "Incident berhasil dibuat",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "Incident berhasil dibuat",
+                      },
+                      ticket: { $ref: "#/components/schemas/Ticket" },
+                    },
+                  },
+                },
+              },
+            },
             400: { description: "Data tidak lengkap" },
             401: { description: "Token tidak ditemukan" },
             403: { description: "Permission tidak cukup" },
@@ -1099,7 +1089,7 @@ const swaggerOptions = {
           tags: ["2. Incidents"],
           summary: "Update Insiden (General)",
           description:
-            "Update field general seperti title, description, category, status. (Bukan untuk klasifikasi).",
+            "Update field general seperti title, description, category, status.",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1131,7 +1121,7 @@ const swaggerOptions = {
           tags: ["2. Incidents"],
           summary: "(Seksi) Klasifikasi Urgency & Impact Insiden",
           description:
-            "Endpoint khusus untuk Seksi mengatur Urgency dan Impact. Ini akan otomatis menghitung ulang Prioritas dan SLA.",
+            "Endpoint khusus untuk Seksi mengatur Urgency dan Impact.",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1189,7 +1179,7 @@ const swaggerOptions = {
           tags: ["3. Service Requests"],
           summary: "Buat Service Request Baru",
           description:
-            "Membuat tiket permintaan layanan baru dari katalog (untuk 'pegawai_opd' atau 'admin'). Memerlukan permission 'requests.create'. Status awal 'pending_approval'. OPD ID diambil dari token. Catalog ID diambil dari service_item_id.",
+            "Membuat tiket permintaan layanan baru dari katalog (untuk 'pegawai_opd' atau 'admin').",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1200,11 +1190,25 @@ const swaggerOptions = {
             },
           },
           responses: {
-            201: { description: "Service request berhasil dibuat" },
-            400: {
-              description:
-                "Data tidak lengkap (Title, desc, service_item_id) atau Akun tidak terhubung OPD.",
+            201: {
+              description: "Service request berhasil dibuat",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "Service request berhasil dibuat",
+                      },
+                      ticket: { $ref: "#/components/schemas/Ticket" },
+                    },
+                  },
+                },
+              },
             },
+            400: { description: "Data tidak lengkap" },
             401: { description: "Token tidak ditemukan" },
             403: { description: "Permission tidak cukup" },
             404: { description: "Service Item tidak ditemukan" },
@@ -1385,7 +1389,7 @@ const swaggerOptions = {
                       count: { type: "integer" },
                       catalogs: {
                         type: "array",
-                        items: { $ref: "#/components/schemas/ServiceCatalog" }, // <-- Skema ini sudah diupdate
+                        items: { $ref: "#/components/schemas/ServiceCatalog" },
                       },
                     },
                   },

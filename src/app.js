@@ -758,6 +758,71 @@ v1Router.get("/public/opd", async (req, res) => {
   } // <--- Ini perbaikannya
 });
 
+v1Router.get("/public/tickets/:ticket_number", async (req, res) => {
+  try {
+    const { ticket_number } = req.params;
+
+    // 1. Cari Tiket (Hanya ambil kolom yang aman untuk publik)
+    const { data: ticket, error } = await supabase
+      .from("tickets")
+      .select(
+        `
+        id,
+        ticket_number,
+        title,
+        description,
+        status,
+        category,
+        priority,
+        incident_location,
+        created_at,
+        updated_at,
+        opd:opd_id(name),
+        reporter_name -- Agar pelapor yakin ini tiket dia
+      `
+      )
+      .eq("ticket_number", ticket_number)
+      .single();
+
+    if (error || !ticket) {
+      return res.status(404).json({
+        error: "Tiket tidak ditemukan. Periksa kembali nomor tiket Anda.",
+      });
+    }
+
+    // 2. Ambil Riwayat Progress (History)
+    // Kita tidak mengambil 'ticket_logs' (internal), tapi 'ticket_progress_updates' (publik)
+    const { data: history } = await supabase
+      .from("ticket_progress_updates")
+      .select("update_time, status_change, handling_description")
+      .eq("ticket_id", ticket.id)
+      .order("update_time", { ascending: false });
+
+    // 3. Format Respons
+    res.json({
+      success: true,
+      data: {
+        ticket_info: {
+          ticket_number: ticket.ticket_number,
+          title: ticket.title,
+          description: ticket.description,
+          status: ticket.status,
+          category: ticket.category,
+          opd_name: ticket.opd?.name, // Flatten object
+          location: ticket.incident_location,
+          reporter_name: ticket.reporter_name,
+          created_at: ticket.created_at,
+          last_updated: ticket.updated_at,
+        },
+        timeline: history || [],
+      },
+    });
+  } catch (error) {
+    console.error("Track ticket error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
 v1Router.get("/incidents", authenticate, async (req, res) => {
   try {
     const {
@@ -1104,40 +1169,36 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
     if (error) throw error;
 
     for (const catalog of catalogs || []) {
-      // --- PERBAIKAN 1: Hanya pilih kolom yang Anda butuhkan ---
-      const { data: items, error: itemsError } = await supabase
+      // 1. Ambil data item
+      const { data: items } = await supabase
         .from("service_items")
         .select(
           "id, parent_item_id, item_name, item_level, description, approval_required"
-        ) // <-- Hanya pilih kolom ini
+        ) // <-- Hanya kolom penting
         .eq("catalog_id", catalog.id)
         .eq("is_active", true)
         .order("display_order");
-
-      if (itemsError) throw itemsError;
 
       const subLayanan_raw =
         items?.filter(
           (i) => i.item_level === "sub_layanan" && !i.parent_item_id
         ) || [];
 
+      // 2. Transformasi Data (Rename Key)
       const subLayanan_final = subLayanan_raw.map((sub) => {
-        // Ambil item Level 3 (mentah)
         const level3_items_raw =
           items?.filter((i) => i.parent_item_id === sub.id) || [];
 
-        // --- PERBAIKAN 2: "Bersihkan" data Level 3 ---
+        // Mapping Level 3 agar bersih
         const level3_items_final = level3_items_raw.map((item) => ({
           id: item.id,
           item_name: item.item_name,
-          // Frontend HANYA butuh ini untuk dropdown Level 3
         }));
-        // --- AKHIR PERBAIKAN 2 ---
 
         return {
           id: sub.id,
-          sub_catalog_name: sub.item_name,
-          service_items: level3_items_final, // <-- Kirim data yang sudah bersih
+          sub_catalog_name: sub.item_name, // <-- Sesuai request frontend
+          service_items: level3_items_final, // <-- Sesuai request frontend
           description: sub.description,
           approval_required: sub.approval_required,
         };
@@ -1149,7 +1210,7 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
 
     res.json({
       success: true,
-      count: catalogs?.length || 0, // <-- Ini juga memperbaiki 'count: 0' Anda
+      count: catalogs?.length || 0,
       catalogs: catalogs || [],
     });
   } catch (error) {
@@ -1236,7 +1297,7 @@ v1Router.post(
           ...slaData,
 
           reporter_attachment_url: attachment_url || null,
-          requested_date: requested_date || null, // <--- BARU: Simpan tanggal permintaan
+          requested_date: requested_date || null,
           created_at: creationTime,
         })
         .select()
@@ -2218,7 +2279,6 @@ v1Router.post(
   authorize("users.write"), // <--- PERBAIKAN: Hanya admin yang bisa akses
   async (req, res) => {
     try {
-      // Admin mengambil data lengkap dari form
       const {
         username,
         password,
@@ -2227,8 +2287,8 @@ v1Router.post(
         nip,
         phone,
         address,
-        role, // <--- AMAN, karena hanya Admin yang bisa
-        opd_id, // <--- AMAN
+        role,
+        opd_id,
         bidang_id,
         seksi_id,
       } = req.body;
@@ -2265,11 +2325,11 @@ v1Router.post(
           nip,
           phone,
           address,
-          role: role, // <--- Diisi sesuai input Admin
+          role: role,
           opd_id: opd_id || null,
           bidang_id: bidang_id || null,
           seksi_id: seksi_id || null,
-          is_active: true, // Admin yang buat, bisa langsung aktif
+          is_active: true,
         })
         .select()
         .single();
