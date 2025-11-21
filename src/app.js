@@ -115,20 +115,17 @@ const RBAC_ROLES = {
     ],
     description: "Teknisi - Handler",
   },
-  // --- PERBAIKAN 1: Perjelas Role 'pengguna' ---
   pengguna: {
-    // --- PERBAIKAN ---
-    permissions: ["tickets.read", "incidents.create", "kb.read"], // Hanya bisa buat insiden
+    permissions: ["tickets.read", "incidents.create", "kb.read"],
     description: "Pengguna Publik / Masyarakat (yang terdaftar)",
   },
   pegawai_opd: {
-    // --- PERBAIKAN ---
     permissions: [
       "tickets.read",
       "incidents.create",
       "requests.create",
       "kb.read",
-    ], // Bisa buat insiden DAN request
+    ],
     description: "Pegawai Internal OPD (Non-teknisi)",
   },
 };
@@ -762,7 +759,10 @@ v1Router.get("/public/tickets/:ticket_number", async (req, res) => {
   try {
     const { ticket_number } = req.params;
 
-    // 1. Cari Tiket (Hanya ambil kolom yang aman untuk publik)
+    console.log("🔍 Mencari tiket:", ticket_number); // 1. Cek apa yang diterima backend
+
+    // 2. Ganti .eq() dengan .ilike() agar tidak peduli huruf besar/kecil
+    // 3. Gunakan .maybeSingle() agar tidak error jika data kosong
     const { data: ticket, error } = await supabase
       .from("tickets")
       .select(
@@ -777,21 +777,39 @@ v1Router.get("/public/tickets/:ticket_number", async (req, res) => {
         incident_location,
         created_at,
         updated_at,
-        opd:opd_id(name),
-        reporter_name -- Agar pelapor yakin ini tiket dia
+        opd:opd_id ( name ), 
+        reporter_name
       `
       )
-      .eq("ticket_number", ticket_number)
-      .single();
+      .ilike("ticket_number", ticket_number)
+      .maybeSingle();
 
-    if (error || !ticket) {
+    // 4. LOG ERROR SUPABASE (Penting!)
+    if (error) {
+      console.error("❌ Supabase Error:", error); // <--- Ini akan muncul di terminal Anda
+      // Jika errornya: "Could not find relationship...", berarti Foreign Key di DB belum diset
+      return res.status(500).json({
+        error: "Terjadi kesalahan database",
+        details: error.message,
+      });
+    }
+
+    if (!ticket) {
+      console.warn("⚠️ Tiket tidak ditemukan di DB");
       return res.status(404).json({
         error: "Tiket tidak ditemukan. Periksa kembali nomor tiket Anda.",
       });
     }
 
     // 2. Ambil Riwayat Progress (History)
-    // Kita tidak mengambil 'ticket_logs' (internal), tapi 'ticket_progress_updates' (publik)
+    await supabase.from("ticket_progress_updates").insert({
+      ticket_id: ticket.id,
+      update_number: 1,
+      updated_by: req.user?.id || null, // Null jika publik
+      status_change: "Open", // Status awal
+      handling_description: "Tiket berhasil dibuat dan masuk antrian.",
+      update_time: new Date(), // Pastikan waktu sama
+    });
     const { data: history } = await supabase
       .from("ticket_progress_updates")
       .select("update_time, status_change, handling_description")
@@ -1794,7 +1812,7 @@ v1Router.delete(
 );
 
 // ==========================================
-// 7.5. DASHBOARD & REPORTS
+// 7.5. DASHBOARD
 // ==========================================
 v1Router.get("/dashboard", authenticate, async (req, res) => {
   try {
@@ -1866,139 +1884,6 @@ v1Router.get("/dashboard", authenticate, async (req, res) => {
   }
 });
 
-v1Router.get(
-  "/reports/sla",
-  authenticate,
-  authorize("reports.read"),
-  async (req, res) => {
-    try {
-      const { opd_id, date_from, date_to } = req.query;
-
-      let query = supabase
-        .from("tickets")
-        .select(
-          "ticket_number, priority, status, sla_due, resolved_at, opd:opd_id(name)"
-        );
-
-      if (opd_id) query = query.eq("opd_id", opd_id);
-      if (date_from) query = query.gte("created_at", date_from);
-      if (date_to) query = query.lte("created_at", date_to);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      res.json({
-        success: true,
-        count: data.length,
-        report: data,
-      });
-    } catch (error) {
-      console.error("Get SLA report error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-v1Router.get(
-  "/reports/performance",
-  authenticate,
-  authorize("dashboard.read"),
-  async (req, res) => {
-    try {
-      const { technician_id, date_from, date_to } = req.query;
-
-      let query = supabase
-        .from("tickets")
-        .select(
-          "assigned_to, status, resolved_at, technician:assigned_to(full_name)"
-        );
-
-      if (technician_id) query = query.eq("assigned_to", technician_id);
-      if (date_from) query = query.gte("created_at", date_from);
-      if (date_to) query = query.lte("created_at", date_to);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      res.json({
-        success: true,
-        count: data.length,
-        report: data,
-      });
-    } catch (error) {
-      console.error("Get performance report error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-// ==========================================
-// 7.6. NOTIFICATIONS
-// ==========================================
-v1Router.get("/notifications", authenticate, async (req, res) => {
-  try {
-    const { is_read, page = 1, limit = 20 } = req.query;
-
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    let query = supabase
-      .from("notifications")
-      .select("*", { count: "exact" })
-      .eq("user_id", req.user.id)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
-
-    if (is_read !== undefined) {
-      query = query.eq("is_read", is_read === "true");
-    }
-
-    const { data, count, error } = await query;
-    if (error) throw error;
-
-    res.json({
-      success: true,
-      data,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: count,
-        total_pages: Math.ceil(count / parseInt(limit)),
-      },
-    });
-  } catch (error) {
-    console.error("Get notifications error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-v1Router.post("/notifications/mark-read", authenticate, async (req, res) => {
-  try {
-    const { notification_ids } = req.body;
-
-    if (!notification_ids || !Array.isArray(notification_ids)) {
-      return res
-        .status(400)
-        .json({ error: "notification_ids harus berupa array" });
-    }
-
-    const { error } = await supabase
-      .from("notifications")
-      .update({ is_read: true, read_at: new Date() })
-      .in("id", notification_ids)
-      .eq("user_id", req.user.id);
-
-    if (error) throw error;
-
-    res.json({
-      success: true,
-      message: "Notifikasi berhasil ditandai sudah dibaca",
-    });
-  } catch (error) {
-    console.error("Mark notifications as read error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
 // ==========================================
 // 7.7. SEARCH
 // ==========================================
@@ -2054,85 +1939,6 @@ v1Router.get("/search", authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error("Search error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-// ==========================================
-// 7.8. SURVEY
-// ==========================================
-v1Router.post("/survey", authenticate, async (req, res) => {
-  try {
-    const { ticket_id, rating, feedback, categories } = req.body;
-
-    if (!ticket_id || !rating) {
-      return res
-        .status(400)
-        .json({ error: "ticket_id dan rating harus diisi" });
-    }
-
-    const { data, error } = await supabase
-      .from("ticket_surveys")
-      .insert({
-        ticket_id,
-        user_id: req.user.id,
-        rating: parseInt(rating),
-        feedback,
-        categories: categories || {},
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    await logTicketActivity(
-      ticket_id,
-      req.user.id,
-      "survey",
-      `Survey submitted: rating ${rating}/5`
-    );
-
-    res.status(201).json({
-      success: true,
-      message: "Survey berhasil dikirim",
-      survey: data,
-    });
-  } catch (error) {
-    console.error("Submit survey error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-// ==========================================
-// 7.9. CHAT/HELPDESK
-// ==========================================
-v1Router.post("/chat/send", authenticate, async (req, res) => {
-  try {
-    const { message, ticket_id } = req.body;
-
-    if (!message) {
-      return res.status(400).json({ error: "Message harus diisi" });
-    }
-
-    const { data, error } = await supabase
-      .from("chat_messages")
-      .insert({
-        user_id: req.user.id,
-        message,
-        ticket_id: ticket_id || null,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    res.status(201).json({
-      success: true,
-      message: "Pesan berhasil dikirim",
-      chat: data,
-    });
-  } catch (error) {
-    console.error("Send chat error:", error);
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
@@ -2433,61 +2239,6 @@ v1Router.get(
 );
 
 v1Router.put(
-  "/admin/opd/:id/branding",
-  authenticate,
-  authorize("opd.write"),
-  async (req, res) => {
-    try {
-      const { logo_url, primary_color, secondary_color } = req.body;
-
-      const branding = {};
-      if (logo_url) branding.logo_url = logo_url;
-      if (primary_color) branding.primary_color = primary_color;
-      if (secondary_color) branding.secondary_color = secondary_color;
-
-      const { data, error } = await supabase
-        .from("opd")
-        .update({ branding })
-        .eq("id", req.params.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      res.json({
-        success: true,
-        message: "Branding OPD berhasil diperbarui",
-        opd: data,
-      });
-    } catch (error) {
-      console.error("Update OPD branding error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-v1Router.get("/admin/opd/:id/calendar", authenticate, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from("opd")
-      .select("working_hours, holidays")
-      .eq("id", req.params.id)
-      .single();
-
-    if (error) throw error;
-
-    res.json({
-      success: true,
-      working_hours: data.working_hours || {},
-      holidays: data.holidays || [],
-    });
-  } catch (error) {
-    console.error("Get OPD calendar error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-v1Router.put(
   "/admin/opd/:id/calendar",
   authenticate,
   authorize("opd.write"),
@@ -2573,42 +2324,6 @@ v1Router.put(
     }
   }
 );
-
-v1Router.post("/admin/technicians/check-in", authenticate, async (req, res) => {
-  try {
-    const { asset_id, qr_code, latitude, longitude } = req.body;
-
-    if (!asset_id && !qr_code) {
-      return res
-        .status(400)
-        .json({ error: "asset_id atau qr_code harus diisi" });
-    }
-
-    const { data, error } = await supabase
-      .from("technician_check_ins")
-      .insert({
-        technician_id: req.user.id,
-        asset_id,
-        qr_code,
-        latitude,
-        longitude,
-        check_in_time: new Date(),
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    res.status(201).json({
-      success: true,
-      message: "Check-in berhasil",
-      check_in: data,
-    });
-  } catch (error) {
-    console.error("Technician check-in error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
 
 // ==========================================
 // 7.13. QR CODE SCANNING
@@ -2946,54 +2661,6 @@ v1Router.get(
       });
     } catch (error) {
       console.error("Get audit logs error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-// ==========================================
-// 7.17. SYSTEM STATS
-// ==========================================
-v1Router.get(
-  "/admin/stats",
-  authenticate,
-  authorize("dashboard.read"),
-  async (req, res) => {
-    try {
-      const { count: totalUsers } = await supabase
-        .from("users")
-        .select("*", { count: "exact", head: true });
-
-      const { count: totalTickets } = await supabase
-        .from("tickets")
-        .select("*", { count: "exact", head: true });
-
-      const { count: openTickets } = await supabase
-        .from("tickets")
-        .select("*", { count: "exact", head: true })
-        .in("status", ["open", "assigned", "in_progress"]);
-
-      const { count: totalAssets } = await supabase
-        .from("assets")
-        .select("*", { count: "exact", head: true });
-
-      const { count: totalKBArticles } = await supabase
-        .from("knowledge_base")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "published");
-
-      res.json({
-        success: true,
-        stats: {
-          total_users: totalUsers,
-          total_tickets: totalTickets,
-          open_tickets: openTickets,
-          total_assets: totalAssets,
-          total_kb_articles: totalKBArticles,
-        },
-      });
-    } catch (error) {
-      console.error("Get system stats error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
