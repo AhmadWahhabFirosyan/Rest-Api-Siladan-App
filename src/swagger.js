@@ -1,30 +1,21 @@
 /**
  * =================================================================
- * DOKUMENTASI SWAGGER UNTUK SERVICE DESK API V2.0
+ * DOKUMENTASI SWAGGER UNTUK SERVICE DESK API V2.0 (COMPLETE & FIXED)
  * =================================================================
- * File ini berisi spesifikasi OpenAPI 3.0 untuk app.js V2.0.
- *
- * Diperbarui Terakhir:
- * - Role 'pengguna' (Masyarakat) vs 'pegawai_opd' (Internal) dipisahkan.
- * - Izin diubah menjadi granular: 'incidents.create' dan 'requests.create'.
- * - Endpoint '/attachments' yang sudah tidak terpakai telah DIHAPUS.
- * - Payload 'POST /requests' diperbarui (opd_id dan asset_identifier dihapus, requested_date ditambah).
- * - Payload 'POST /incidents' (Internal) diperbarui (tambah asset_identifier, attachment_url, incident_date. Hapus urgency/impact).
- * - Payload 'POST /public/incidents' (Publik) diperbarui (tambah incident_date, ganti reporter_nip jadi reporter_nik).
- * - Respons 'POST /auth/login' diperbarui (menambahkan phone dan address).
+ * Dokumentasi lengkap yang sesuai 100% dengan app.js
  * =================================================================
  */
 
 const swaggerJsDoc = require("swagger-jsdoc");
 
-// Opsi konfigurasi untuk swagger-jsdoc
 const swaggerOptions = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "Siladan API",
+      title: "Siladan API - Service Desk System",
       version: "2.0.0",
-      description: "Dokumentasi REST API Siladan App",
+      description:
+        "Dokumentasi REST API Siladan App (SSO Enabled) - Complete & Accurate",
       contact: {
         name: "Tim Backend",
         email: "ahmadwahhabfirosyan@gmail.com",
@@ -41,55 +32,32 @@ const swaggerOptions = {
       },
     ],
     tags: [
+      { name: "0. Root", description: "Base endpoints" },
       {
-        name: "0. Public",
-        description: "Endpoint publik yang tidak memerlukan login",
+        name: "1. Public Endpoints",
+        description: "Endpoint publik (Tracking & Pelaporan)",
       },
       {
-        name: "1. Authentication",
-        description: "Login, Register, Lupa Password, dan Profil",
+        name: "2. Authentication",
+        description: "Login, SSO, Register, Profil",
       },
+      { name: "3. Incidents", description: "Manajemen Insiden (Internal)" },
       {
-        name: "2. Incidents",
-        description:
-          "Manajemen Insiden (Create, Read, Update, Classify, Merge)",
-      },
-      {
-        name: "3. Service Requests",
+        name: "4. Service Requests",
         description: "Manajemen Permintaan Layanan",
       },
-      {
-        name: "4. Service Catalog",
-        description: "Mengelola katalog layanan yang bisa di-request",
-      },
-      {
-        name: "5. Knowledge Base (KB)",
-        description: "Manajemen artikel, FAQ, dan Known Errors",
-      },
-      {
-        name: "6. Assets & QR Code",
-        description: "Manajemen Aset dan fungsionalitas Scan QR",
-      },
-      {
-        name: "7. Admin",
-        description: "Operasional Admin (Users, OPD, Technicians, dll.)",
-      },
-      {
-        name: "8. Attachments & Comments",
-        description: "Manajemen Komentar (Endpoint Attachment Sudah Dihapus)",
-      },
-      {
-        name: "9. Progress Updates",
-        description: "Update Progress untuk Insiden dan Request",
-      },
-      {
-        name: "10. Audit & Stats",
-        description: "Audit Logs dan Statistik Sistem",
-      },
-      {
-        name: "11. Utilities",
-        description: "Endpoint lain-lain (Sync, Chat, Survey, Search)",
-      },
+      { name: "5. Service Catalog", description: "Katalog Layanan" },
+      { name: "6. Knowledge Base", description: "Artikel & FAQ" },
+      { name: "7. Dashboard", description: "Dashboard & Statistik" },
+      { name: "8. Search", description: "Pencarian Global" },
+      { name: "9. Sync", description: "Sinkronisasi Offline" },
+      { name: "10. Admin - Users", description: "Manajemen User" },
+      { name: "11. Admin - OPD", description: "Manajemen OPD" },
+      { name: "12. Admin - Technicians", description: "Manajemen Teknisi" },
+      { name: "13. Assets & QR", description: "Manajemen Aset & QR Code" },
+      { name: "14. Comments", description: "Komentar Tiket" },
+      { name: "15. Progress Updates", description: "Update Progress Tiket" },
+      { name: "16. Audit Logs", description: "Log Aktivitas" },
     ],
     components: {
       securitySchemes: {
@@ -97,147 +65,100 @@ const swaggerOptions = {
           type: "http",
           scheme: "bearer",
           bearerFormat: "JWT",
-          description:
-            "Otorisasi menggunakan Bearer Token JWT yang didapat dari /auth/login.",
+          description: "Masukkan token JWT yang didapat dari login",
         },
       },
       schemas: {
-        // --- Skema Input ---
-        InputLogin: {
+        // ============= AUTH SCHEMAS =============
+        LoginRequest: {
           type: "object",
+          required: ["username", "password"],
           properties: {
             username: { type: "string", example: "admin.kota" },
             password: {
               type: "string",
               format: "password",
-              example: "pass1234",
+              example: "password123",
             },
           },
-          required: ["username", "password"],
         },
-        InputRegister: {
+        RegisterRequest: {
           type: "object",
-          description: "Untuk registrasi publik (/auth/register)",
+          required: ["username", "password", "email", "full_name"],
           properties: {
-            username: { type: "string", example: "budi.pengguna" },
-            email: {
-              type: "string",
-              format: "email",
-              example: "budi@gmail.com",
-            },
+            username: { type: "string", example: "user123" },
             password: {
               type: "string",
               format: "password",
-              example: "pass1234",
+              example: "password123",
             },
-            full_name: { type: "string", example: "Budi Setiawan" },
+            email: {
+              type: "string",
+              format: "email",
+              example: "user@email.com",
+            },
+            full_name: { type: "string", example: "John Doe" },
             nip: {
               type: "string",
-              description: "Bisa NIK",
-              example: "3578...",
+              example: "123456789",
+              description: "NIK untuk publik",
             },
-            phone: { type: "string", example: "08123456789" },
-            address: { type: "string", example: "Jl. Contoh No. 1" },
+            phone: { type: "string", example: "081234567890" },
+            address: { type: "string", example: "Jl. Example No. 123" },
           },
-          required: ["username", "password", "email", "full_name"],
         },
-        InputForgotPassword: {
+        UpdateProfileRequest: {
           type: "object",
+          properties: {
+            full_name: { type: "string", example: "John Doe Updated" },
+            phone: { type: "string", example: "081234567890" },
+            address: { type: "string", example: "Jl. Example No. 123" },
+          },
+        },
+        ForgotPasswordRequest: {
+          type: "object",
+          required: ["email"],
           properties: {
             email: {
               type: "string",
               format: "email",
-              example: "user@example.com",
+              example: "user@email.com",
             },
           },
-          required: ["email"],
         },
-        InputUpdateProfile: {
+
+        // ============= INCIDENT SCHEMAS =============
+        CreateIncidentInternal: {
           type: "object",
+          required: ["title", "description"],
           properties: {
-            full_name: { type: "string", example: "Budi Setiawan" },
-            phone: { type: "string", example: "08123456789" },
-            address: { type: "string", example: "Jl. Contoh No. 1" },
-          },
-        },
-        InputCreateIncident: {
-          type: "object",
-          description:
-            "Untuk internal (/incidents) oleh 'pegawai_opd' atau 'admin'. Urgency/Impact di-set default oleh server.",
-          properties: {
-            title: { type: "string", example: "Printer Mati" },
-            description: { type: "string", example: "Printer tidak menyala." },
+            title: { type: "string", example: "Printer tidak bisa print" },
+            description: {
+              type: "string",
+              example:
+                "Printer HP LaserJet tidak merespon saat diperintah print",
+            },
             category: { type: "string", example: "Hardware" },
-            incident_location: { type: "string", example: "Lantai 3" },
+            incident_location: { type: "string", example: "Ruang IT Lantai 2" },
             incident_date: {
               type: "string",
               format: "date-time",
-              example: "2025-11-07T10:00:00Z",
+              example: "2025-11-22T09:00:00Z",
             },
             opd_id: {
               type: "integer",
               example: 1,
-              description: "Opsional, default diambil dari OPD pelapor (token)",
+              description: "Opsional, jika tidak diisi akan ambil dari token",
             },
-            asset_identifier: {
-              type: "string",
-              description: "Nama aset (teks bebas)",
-              example: "PC-01",
-            },
+            asset_identifier: { type: "string", example: "PRINTER-001" },
             attachment_url: {
               type: "string",
-              description: "URL file yang sudah di-upload",
-              example: "https://.../printer.jpg",
+              example: "https://storage.example.com/photo.jpg",
             },
           },
-          required: ["title", "description"],
         },
-        InputCreatePublicIncident: {
+        CreateIncidentPublic: {
           type: "object",
-          description:
-            "Untuk publik (/public/incidents). Wajib isi data pelapor.",
-          properties: {
-            title: { type: "string", example: "Lampu Jalan Mati" },
-            description: {
-              type: "string",
-              example: "Lampu di Jl. Pahlawan mati.",
-            },
-            category: { type: "string", example: "Fasilitas Publik" },
-            incident_location: { type: "string", example: "Jl. Pahlawan" },
-            incident_date: {
-              type: "string",
-              format: "date-time",
-              example: "2025-11-07T10:00:00Z",
-            },
-            asset_identifier: {
-              type: "string",
-              description: "Nama aset (teks bebas)",
-              example: "Tiang Lampu A-05",
-            },
-            opd_id: {
-              type: "integer",
-              example: 22,
-              description: "Wajib diisi oleh publik",
-            },
-            reporter_name: { type: "string", example: "Warga Peduli" },
-            reporter_email: {
-              type: "string",
-              format: "email",
-              example: "warga@gmail.com",
-            },
-            reporter_phone: { type: "string", example: "081298765432" },
-            reporter_address: { type: "string", example: "Jl. Mawar No. 10" },
-            reporter_nik: {
-              type: "string",
-              description: "NIK Pelapor (disimpan ke reporter_nip)",
-              example: "3578...",
-            },
-            attachment_url: {
-              type: "string",
-              description: "URL file yang sudah di-upload",
-              example: "https://.../lampu.jpg",
-            },
-          },
           required: [
             "title",
             "description",
@@ -246,200 +167,198 @@ const swaggerOptions = {
             "reporter_email",
             "reporter_phone",
           ],
-        },
-        InputClassifyIncident: {
-          type: "object",
-          description:
-            "Untuk Seksi mengklasifikasi prioritas (/incidents/:id/classify)",
           properties: {
-            urgency: { type: "integer", example: 4, description: "Nilai 1-5" },
-            impact: { type: "integer", example: 3, description: "Nilai 1-5" },
+            title: { type: "string", example: "Lampu jalan mati" },
+            description: {
+              type: "string",
+              example:
+                "Lampu jalan di Jl. Pahlawan sudah mati sejak 3 hari yang lalu",
+            },
+            category: { type: "string", example: "Fasilitas Publik" },
+            incident_location: {
+              type: "string",
+              example: "Jl. Pahlawan No. 45",
+            },
+            incident_date: {
+              type: "string",
+              format: "date-time",
+              example: "2025-11-20T18:00:00Z",
+            },
+            opd_id: { type: "integer", example: 5 },
+            asset_identifier: { type: "string", example: "LAMPU-JL-045" },
+            reporter_name: { type: "string", example: "Budi Santoso" },
+            reporter_email: {
+              type: "string",
+              format: "email",
+              example: "budi@gmail.com",
+            },
+            reporter_phone: { type: "string", example: "081234567890" },
+            reporter_address: { type: "string", example: "Jl. Mawar No. 10" },
+            reporter_nik: { type: "string", example: "3578012345678901" },
+            attachment_url: {
+              type: "string",
+              example: "https://storage.example.com/lampu-mati.jpg",
+            },
           },
+        },
+        ClassifyIncidentRequest: {
+          type: "object",
           required: ["urgency", "impact"],
-        },
-        InputUpdateIncident: {
-          type: "object",
-          description:
-            "Untuk update general (status, judul, dll) oleh teknisi/admin",
           properties: {
-            title: { type: "string" },
-            description: { type: "string" },
-            category: { type: "string" },
-            status: { type: "string", example: "in_progress" },
+            urgency: { type: "integer", minimum: 1, maximum: 5, example: 4 },
+            impact: { type: "integer", minimum: 1, maximum: 5, example: 3 },
           },
         },
-        InputMergeIncidents: {
+        UpdateIncidentRequest: {
           type: "object",
+          properties: {
+            title: {
+              type: "string",
+              example: "Printer masih tidak bisa print",
+            },
+            description: {
+              type: "string",
+              example: "Update: Sudah dicoba restart masih belum bisa",
+            },
+            category: { type: "string", example: "Hardware" },
+            status: {
+              type: "string",
+              enum: ["open", "assigned", "in_progress", "resolved", "closed"],
+              example: "in_progress",
+            },
+          },
+        },
+        MergeIncidentsRequest: {
+          type: "object",
+          required: ["source_ticket_ids", "target_ticket_id", "reason"],
           properties: {
             source_ticket_ids: {
               type: "array",
               items: { type: "integer" },
-              example: [1, 2],
+              example: [101, 102, 103],
             },
-            target_ticket_id: { type: "integer", example: 3 },
-            reason: { type: "string", example: "Duplicate issues" },
+            target_ticket_id: { type: "integer", example: 100 },
+            reason: {
+              type: "string",
+              example: "Semua laporan merujuk pada masalah server yang sama",
+            },
           },
-          required: ["source_ticket_ids", "target_ticket_id", "reason"],
         },
-        InputCreateRequest: {
+
+        // ============= REQUEST SCHEMAS =============
+        CreateRequestInternal: {
           type: "object",
-          description:
-            "Untuk internal (/requests). OPD ID diambil otomatis dari token user. Asset identifier dihapus.",
+          required: ["title", "description", "service_item_id"],
           properties: {
-            title: { type: "string", example: "Permintaan Akun Email Baru" },
+            title: {
+              type: "string",
+              example: "Permintaan pembuatan email baru",
+            },
             description: {
               type: "string",
-              example: "Mohon dibuatkan akun email untuk pegawai baru.",
+              example: "Dibutuhkan email untuk pegawai baru di Bagian Keuangan",
             },
-            service_item_id: {
-              type: "integer",
-              example: 10,
-              description: "ID dari item level 3 (detail layanan)",
-            },
+            service_item_id: { type: "integer", example: 15 },
             service_detail: {
               type: "object",
-              example: { nama_pegawai: "Budi" },
-              description: "Data JSON dari form dinamis",
+              example: {
+                nama_pegawai: "Ahmad Wahyudi",
+                nip: "199001012020011001",
+                bagian: "Keuangan",
+              },
+              description: "Data tambahan terkait request",
             },
             attachment_url: {
               type: "string",
-              description: "URL file yang sudah di-upload (Opsional)",
-              example: "https://.../sk-pegawai.pdf",
+              example: "https://storage.example.com/sk-pegawai.pdf",
             },
             requested_date: {
               type: "string",
               format: "date-time",
-              description: "Tanggal permintaan layanan diperlukan (Opsional)",
-              example: "2025-11-20T10:00:00Z",
+              example: "2025-11-25T08:00:00Z",
             },
           },
-          required: ["title", "description", "service_item_id"],
         },
-        InputRequestApproval: {
+        ApprovalRequest: {
           type: "object",
           properties: {
-            notes: { type: "string", example: "Disetujui" },
+            notes: { type: "string", example: "Disetujui, silakan proses" },
           },
         },
-        InputRequestReject: {
+        RejectRequest: {
           type: "object",
-          properties: {
-            notes: { type: "string", example: "Data tidak lengkap" },
-          },
           required: ["notes"],
-        },
-        InputCreateKB: {
-          type: "object",
           properties: {
-            title: { type: "string", example: "Cara Reset Password" },
-            content: { type: "string", example: "Langkah 1..." },
-            category: { type: "string", example: "FAQ" },
+            notes: {
+              type: "string",
+              example: "Ditolak karena data tidak lengkap",
+            },
+          },
+        },
+
+        // ============= KB SCHEMAS =============
+        CreateKBRequest: {
+          type: "object",
+          required: ["title", "content"],
+          properties: {
+            title: {
+              type: "string",
+              example: "Cara Reset Password Akun Email",
+            },
+            content: {
+              type: "string",
+              example:
+                "Langkah 1: Buka halaman login...\nLangkah 2: Klik 'Lupa Password'...",
+            },
+            category: { type: "string", example: "Tutorial" },
             tags: {
               type: "array",
               items: { type: "string" },
-              example: ["password", "reset"],
+              example: ["email", "password", "reset"],
             },
             opd_id: { type: "integer", example: 1 },
           },
-          required: ["title", "content"],
         },
-        InputUpdateKB: {
+        UpdateKBRequest: {
           type: "object",
           properties: {
-            title: { type: "string" },
-            content: { type: "string" },
-            category: { type: "string" },
-            tags: { type: "array", items: { type: "string" } },
-          },
-        },
-        InputMarkRead: {
-          type: "object",
-          properties: {
-            notification_ids: {
+            title: {
+              type: "string",
+              example: "Cara Reset Password Akun Email (Updated)",
+            },
+            content: {
+              type: "string",
+              example: "Konten yang sudah diupdate...",
+            },
+            category: { type: "string", example: "Tutorial" },
+            tags: {
               type: "array",
-              items: { type: "integer" },
-              example: [1, 2, 3],
+              items: { type: "string" },
+              example: ["email", "password"],
             },
           },
-          required: ["notification_ids"],
         },
-        InputSurvey: {
+
+        // ============= ADMIN SCHEMAS =============
+        CreateUserRequest: {
           type: "object",
+          required: ["username", "password", "email", "full_name", "role"],
           properties: {
-            ticket_id: { type: "integer" },
-            rating: { type: "integer", example: 5 },
-            feedback: { type: "string", example: "Sangat membantu!" },
-            categories: { type: "object", example: { speed: 5, quality: 4 } },
-          },
-          required: ["ticket_id", "rating"],
-        },
-        InputChat: {
-          type: "object",
-          properties: {
-            message: { type: "string", example: "Halo, saya butuh bantuan" },
-            ticket_id: {
-              type: "integer",
-              example: 101,
-              description: "Opsional, jika chat terkait tiket",
-            },
-          },
-          required: ["message"],
-        },
-        InputSync: {
-          type: "object",
-          properties: {
-            tickets: { type: "array", items: { type: "object" } },
-            progress_updates: { type: "array", items: { type: "object" } },
-          },
-        },
-        InputComment: {
-          type: "object",
-          properties: {
-            content: { type: "string", example: "Komentar tambahan" },
-            is_internal: { type: "boolean", example: false },
-          },
-          required: ["content"],
-        },
-        InputProgressUpdateIncident: {
-          type: "object",
-          properties: {
-            update_number: { type: "integer", example: 1 },
-            status_change: { type: "string", example: "Ditangani" },
-            reason: { type: "string", example: "Pengecekan awal" },
-            problem_detail: { type: "string", example: "Kabel rusak" },
-            handling_description: { type: "string", example: "Ganti kabel" },
-            final_solution: { type: "string", example: "Masalah teratasi" },
-          },
-          required: ["update_number", "status_change"],
-        },
-        InputProgressUpdateRequest: {
-          type: "object",
-          properties: {
-            update_number: { type: "integer", example: 1 },
-            status_change: { type: "string", example: "Dalam Proses" },
-            notes: { type: "string", example: "Catatan update" },
-          },
-          required: ["update_number", "status_change"],
-        },
-        InputCreateAdminUser: {
-          type: "object",
-          description: "Untuk Admin membuat akun internal (/admin/users)",
-          properties: {
-            username: { type: "string", example: "admin.opd" },
+            username: { type: "string", example: "teknisi.opd1" },
             password: {
               type: "string",
               format: "password",
-              example: "pass1234",
+              example: "password123",
             },
             email: {
               type: "string",
               format: "email",
-              example: "admin@opd.go.id",
+              example: "teknisi@opd.go.id",
             },
-            full_name: { type: "string", example: "Admin OPD" },
+            full_name: { type: "string", example: "Ahmad Teknisi" },
             nip: { type: "string", example: "199001012020011001" },
-            phone: { type: "string", example: "08123456789" },
-            address: { type: "string", example: "Jl. Contoh No. 1" },
+            phone: { type: "string", example: "081234567890" },
+            address: { type: "string", example: "Jl. Example No. 123" },
             role: {
               type: "string",
               enum: [
@@ -449,182 +368,209 @@ const swaggerOptions = {
                 "bidang",
                 "seksi",
                 "teknisi",
-                "pengguna",
                 "pegawai_opd",
+                "pengguna",
               ],
-              example: "admin_opd",
+              example: "teknisi",
             },
             opd_id: { type: "integer", example: 1 },
             bidang_id: { type: "integer", example: 1 },
             seksi_id: { type: "integer", example: 1 },
           },
-          required: ["username", "password", "email", "full_name", "role"],
         },
-        InputUpdateUserRole: {
+        UpdateUserRoleRequest: {
           type: "object",
           properties: {
-            role: { type: "string", example: "teknisi" },
-            opd_id: { type: "integer", example: 1 },
-            bidang_id: { type: "integer", example: 1 },
-            seksi_id: { type: "integer", example: 1 },
+            role: {
+              type: "string",
+              enum: [
+                "super_admin",
+                "admin_kota",
+                "admin_opd",
+                "bidang",
+                "seksi",
+                "teknisi",
+                "pegawai_opd",
+                "pengguna",
+              ],
+            },
+            opd_id: { type: "integer", example: 2 },
+            bidang_id: { type: "integer", example: 2 },
+            seksi_id: { type: "integer", example: 2 },
             is_active: { type: "boolean", example: true },
           },
         },
-        InputUpdateOpdBranding: {
-          type: "object",
-          properties: {
-            logo_url: {
-              type: "string",
-              example: "https://example.com/logo.png",
-            },
-            primary_color: { type: "string", example: "#007bff" },
-            secondary_color: { type: "string", example: "#6c757d" },
-          },
-        },
-        InputUpdateOpdCalendar: {
+        UpdateOpdCalendarRequest: {
           type: "object",
           properties: {
             working_hours: {
               type: "object",
-              example: { monday: "08:00-16:00" },
+              example: {
+                monday: "08:00-16:00",
+                tuesday: "08:00-16:00",
+                wednesday: "08:00-16:00",
+                thursday: "08:00-16:00",
+                friday: "08:00-15:30",
+              },
             },
             holidays: {
               type: "array",
-              items: { type: "string" },
-              example: ["2025-12-25"],
+              items: { type: "string", format: "date" },
+              example: ["2025-12-25", "2026-01-01"],
             },
           },
         },
-        InputUpdateTechnicianSkills: {
+        UpdateTechnicianSkillsRequest: {
           type: "object",
+          required: ["skills"],
           properties: {
             skills: {
               type: "array",
               items: {
                 type: "object",
                 properties: {
-                  name: { type: "string", example: "Network" },
-                  level: { type: "string", example: "expert" },
-                  category: { type: "string", example: "IT" },
+                  name: { type: "string", example: "Network Configuration" },
+                  level: {
+                    type: "string",
+                    enum: ["beginner", "intermediate", "advanced", "expert"],
+                    example: "advanced",
+                  },
+                  category: { type: "string", example: "Networking" },
                 },
               },
             },
-            expertise_level: { type: "string", example: "senior" },
+            expertise_level: {
+              type: "string",
+              enum: ["junior", "middle", "senior"],
+              example: "senior",
+            },
             certifications: {
               type: "array",
               items: { type: "string" },
-              example: ["CCNA"],
+              example: ["CCNA", "CompTIA Network+"],
             },
           },
-          required: ["skills"],
         },
-        InputTechnicianCheckIn: {
+
+        // ============= COMMENT & PROGRESS SCHEMAS =============
+        CreateCommentRequest: {
           type: "object",
+          required: ["content"],
           properties: {
-            asset_id: { type: "integer", example: 1 },
-            qr_code: { type: "string", example: "QR123" },
-            latitude: { type: "number", example: -6.2088 },
-            longitude: { type: "number", example: 106.8456 },
-          },
-        },
-        // --- Skema Data (Model) ---
-        User: {
-          type: "object",
-          properties: {
-            id: { type: "integer", example: 1 },
-            username: { type: "string", example: "admin.kota" },
-            email: {
+            content: {
               type: "string",
-              format: "email",
-              example: "admin@pemkot.go.id",
+              example:
+                "Sudah dilakukan pengecekan awal, printer dalam kondisi rusak",
             },
-            full_name: { type: "string", example: "Admin Kota" },
-            phone: { type: "string", example: "08123456789" },
-            address: { type: "string", example: "Jl. Balai Kota" },
-            role: { type: "string", example: "admin_kota" },
-            opd_id: { type: "integer", example: 1 },
-            is_active: { type: "boolean", example: true },
+            is_internal: {
+              type: "boolean",
+              example: false,
+              description: "true = internal note, false = public comment",
+            },
           },
         },
-        Ticket: {
+        CreateProgressIncidentRequest: {
           type: "object",
+          required: ["update_number", "status_change"],
           properties: {
-            id: { type: "integer", example: 101 },
-            ticket_number: { type: "string", example: "INC-2025-001" },
-            type: { type: "string", example: "incident" },
-            title: { type: "string", example: "Printer Mati" },
-            priority: { type: "string", example: "medium" },
-            status: { type: "string", example: "open" },
-            opd_id: { type: "integer", example: 1 },
-            reporter_id: { type: "integer", example: 50 },
-            assigned_to: { type: "integer", example: 25 },
-            created_at: { type: "string", format: "date-time" },
-            sla_due: { type: "string", format: "date-time" },
-            // Kolom pelapor publik
-            reporter_name: { type: "string", example: "Warga Peduli" },
-            reporter_email: { type: "string", example: "warga@gmail.com" },
-            reporter_phone: { type: "string", example: "0812..." },
-            reporter_address: { type: "string" },
-            asset_name_reported: { type: "string" },
-            reporter_attachment_url: { type: "string" },
-            requested_date: { type: "string", format: "date-time" },
+            update_number: { type: "integer", example: 1 },
+            status_change: { type: "string", example: "Ditangani" },
+            reason: {
+              type: "string",
+              example: "Printer rusak karena komponen internal",
+            },
+            problem_detail: {
+              type: "string",
+              example: "Drum printer sudah habis masa pakai",
+            },
+            handling_description: {
+              type: "string",
+              example: "Mengganti drum printer dengan yang baru",
+            },
+            final_solution: {
+              type: "string",
+              example: "Printer sudah bisa digunakan kembali dengan normal",
+            },
           },
         },
-        ServiceCatalog: {
+        CreateProgressRequestRequest: {
           type: "object",
+          required: ["update_number", "status_change"],
           properties: {
-            id: { type: "integer", example: 1 },
-            catalog_name: { type: "string", example: "Layanan IT" },
-            description: { type: "string", example: "Deskripsi" },
-            sub_layanan: { type: "array", items: { type: "object" } },
+            update_number: { type: "integer", example: 1 },
+            status_change: { type: "string", example: "Dalam Proses" },
+            notes: {
+              type: "string",
+              example: "Email sedang dibuat oleh tim IT",
+            },
           },
         },
-        ServiceItemBasic: {
+
+        // ============= RESPONSE MODELS =============
+        SuccessResponse: {
           type: "object",
-          description: "Detail item layanan dasar (Level 3) untuk dropdown",
           properties: {
-            id: { type: "integer", example: 11 },
-            item_name: { type: "string", example: "Buat Akun Email" },
+            success: { type: "boolean", example: true },
+            message: { type: "string", example: "Operasi berhasil" },
           },
         },
-        Asset: {
+        ErrorResponse: {
           type: "object",
           properties: {
-            id: { type: "integer", example: 1 },
-            name: { type: "string", example: "Printer" },
-            asset_type: { type: "string", example: "Hardware" },
-            qr_code: { type: "string", example: "AST-123" },
+            error: { type: "string", example: "Terjadi kesalahan" },
           },
         },
-        OPD: {
+        PaginationResponse: {
           type: "object",
           properties: {
-            id: { type: "integer", example: 1 },
-            name: { type: "string", example: "Dinas Kominfo" },
-          },
-        },
-        ApiError: {
-          type: "object",
-          properties: {
-            error: { type: "string", example: "Pesan error" },
+            page: { type: "integer", example: 1 },
+            limit: { type: "integer", example: 20 },
+            total: { type: "integer", example: 150 },
+            total_pages: { type: "integer", example: 8 },
           },
         },
       },
     },
-    // ===========================================
-    // DEFINISI PATHS / ENDPOINTS
-    // ===========================================
     paths: {
-      // --- 0. Public ---
-      "/public/opd": {
+      // ============= 0. ROOT =============
+      "/": {
         get: {
-          tags: ["0. Public"],
-          summary: "(Publik) Mendapatkan daftar OPD",
-          description:
-            "Mengambil daftar OPD yang aktif untuk ditampilkan di form publik.",
+          tags: ["0. Root"],
+          summary: "Root endpoint",
           responses: {
             200: {
-              description: "Daftar OPD",
+              description: "Welcome message",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example:
+                          "Welcome to Service Desk API v2.0 (SSO Enabled)",
+                      },
+                      version: { type: "string", example: "2.0.0" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+
+      // ============= 1. PUBLIC ENDPOINTS =============
+      "/public/opd": {
+        get: {
+          tags: ["1. Public Endpoints"],
+          summary: "Mendapatkan daftar OPD (publik)",
+          description:
+            "Endpoint publik untuk mendapatkan daftar OPD yang aktif",
+          responses: {
+            200: {
+              description: "Berhasil",
               content: {
                 "application/json": {
                   schema: {
@@ -633,30 +579,44 @@ const swaggerOptions = {
                       success: { type: "boolean", example: true },
                       data: {
                         type: "array",
-                        items: { $ref: "#/components/schemas/OPD" },
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "integer", example: 1 },
+                            name: {
+                              type: "string",
+                              example: "Dinas Komunikasi dan Informatika",
+                            },
+                          },
+                        },
                       },
                     },
                   },
                 },
               },
             },
-            500: { description: "Terjadi kesalahan server" },
+            500: {
+              description: "Server error",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
           },
         },
       },
       "/public/incidents": {
         post: {
-          tags: ["0. Public"],
-          summary: "Buat Insiden Baru (Publik)",
+          tags: ["1. Public Endpoints"],
+          summary: "Buat insiden publik (tanpa login)",
           description:
-            "Buat tiket insiden baru TANPA login (untuk masyarakat). Wajib menyertakan data pelapor dan OPD. Urgency/Impact di-set default 'Medium' oleh server.",
+            "Endpoint untuk masyarakat melaporkan insiden tanpa harus login",
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/InputCreatePublicIncident",
-                },
+                schema: { $ref: "#/components/schemas/CreateIncidentPublic" },
               },
             },
           },
@@ -673,35 +633,35 @@ const swaggerOptions = {
                         type: "string",
                         example: "Insiden berhasil dilaporkan",
                       },
-                      ticket: { $ref: "#/components/schemas/Ticket" },
+                      ticket: { type: "object" },
                     },
                   },
                 },
               },
             },
-            400: { description: "Data wajib tidak lengkap" },
-            500: { description: "Terjadi kesalahan server" },
+            400: { description: "Validasi gagal" },
+            500: { description: "Server error" },
           },
         },
       },
       "/public/tickets/{ticket_number}": {
         get: {
-          tags: ["0. Public"],
-          summary: "Lacak Status Tiket (Publik)",
+          tags: ["1. Public Endpoints"],
+          summary: "Tracking tiket publik (tanpa login)",
           description:
-            "Melacak status tiket berdasarkan Nomor Tiket (misal: INC-2025-001). Tidak memerlukan login.",
+            "Cek status tiket menggunakan nomor tiket tanpa harus login",
           parameters: [
             {
               name: "ticket_number",
               in: "path",
               required: true,
               schema: { type: "string" },
-              example: "INC-2025-1234",
+              example: "INC-2025-0001",
             },
           ],
           responses: {
             200: {
-              description: "Detail tiket ditemukan",
+              description: "Data tiket ditemukan",
               content: {
                 "application/json": {
                   schema: {
@@ -714,14 +674,35 @@ const swaggerOptions = {
                           ticket_info: {
                             type: "object",
                             properties: {
-                              ticket_number: { type: "string" },
-                              title: { type: "string" },
+                              ticket_number: {
+                                type: "string",
+                                example: "INC-2025-0001",
+                              },
+                              title: {
+                                type: "string",
+                                example: "Lampu jalan mati",
+                              },
                               description: { type: "string" },
-                              status: { type: "string" },
-                              category: { type: "string" },
-                              opd_name: { type: "string" },
-                              location: { type: "string" },
-                              reporter_name: { type: "string" },
+                              status: {
+                                type: "string",
+                                example: "in_progress",
+                              },
+                              category: {
+                                type: "string",
+                                example: "Fasilitas Publik",
+                              },
+                              opd_name: {
+                                type: "string",
+                                example: "Dinas Pekerjaan Umum",
+                              },
+                              location: {
+                                type: "string",
+                                example: "Jl. Pahlawan No. 45",
+                              },
+                              reporter_name: {
+                                type: "string",
+                                example: "Budi Santoso",
+                              },
                               created_at: {
                                 type: "string",
                                 format: "date-time",
@@ -741,7 +722,10 @@ const swaggerOptions = {
                                   type: "string",
                                   format: "date-time",
                                 },
-                                status_change: { type: "string" },
+                                status_change: {
+                                  type: "string",
+                                  example: "Open",
+                                },
                                 handling_description: { type: "string" },
                               },
                             },
@@ -754,23 +738,21 @@ const swaggerOptions = {
               },
             },
             404: { description: "Tiket tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
+            500: { description: "Server error" },
           },
         },
       },
 
-      // --- 1. Authentication ---
+      // ============= 2. AUTHENTICATION =============
       "/auth/login": {
         post: {
-          tags: ["1. Authentication"],
-          summary: "Login Pengguna",
-          description:
-            "Login untuk semua role, mengembalikan JWT token dan data user.",
+          tags: ["2. Authentication"],
+          summary: "Login dengan username & password",
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputLogin" },
+                schema: { $ref: "#/components/schemas/LoginRequest" },
               },
             },
           },
@@ -785,20 +767,19 @@ const swaggerOptions = {
                       success: { type: "boolean", example: true },
                       token: {
                         type: "string",
-                        example: "eyJhbGciOiJIUzI1NiIsIn...",
+                        example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                       },
                       user: {
                         type: "object",
                         properties: {
-                          id: { type: "integer" },
-                          username: { type: "string" },
-                          full_name: { type: "string" },
-                          email: { type: "string" },
-                          nip: { type: "string" },
-                          phone: { type: "string" },
-                          address: { type: "string" },
-                          role: { type: "string" },
-                          opd_id: { type: "integer" },
+                          id: { type: "integer", example: 1 },
+                          username: { type: "string", example: "admin.kota" },
+                          full_name: { type: "string", example: "Admin Kota" },
+                          email: {
+                            type: "string",
+                            example: "admin@kota.go.id",
+                          },
+                          role: { type: "string", example: "admin_kota" },
                           permissions: {
                             type: "array",
                             items: { type: "string" },
@@ -810,161 +791,226 @@ const swaggerOptions = {
                 },
               },
             },
-            400: { description: "Username dan password harus diisi" },
             401: { description: "Username atau password salah" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
-      "/auth/register": {
-        post: {
-          tags: ["1. Authentication"],
-          summary: "Registrasi Pengguna Publik",
-          description:
-            "Registrasi untuk pengguna (role hardcoded sebagai 'pengguna').",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputRegister" },
-              },
-            },
-          },
-          responses: {
-            201: {
-              description: "Registrasi berhasil",
-            },
-            400: { description: "Username atau email sudah digunakan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/auth/logout": {
-        post: {
-          tags: ["1. Authentication"],
-          summary: "Logout Pengguna",
-          description:
-            "Logout (hanya client-side, token tetap valid hingga expire).",
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: {
-              description: "Logout berhasil",
-            },
-            401: { description: "Token tidak ditemukan" },
-          },
-        },
-      },
-      "/auth/me": {
+      "/auth/sso": {
         get: {
-          tags: ["1. Authentication"],
-          summary: "Dapatkan Profil Pengguna Saat Ini",
-          description:
-            "Mengambil data profil user yang login, termasuk relasi OPD, bidang, seksi.",
-          security: [{ bearerAuth: [] }],
+          tags: ["2. Authentication"],
+          summary: "Redirect ke SSO Provider",
+          description: "Mendapatkan URL redirect untuk login SSO",
+          parameters: [
+            {
+              name: "provider",
+              in: "query",
+              required: true,
+              schema: { type: "string", enum: ["google", "github", "gitlab"] },
+              example: "google",
+            },
+          ],
           responses: {
             200: {
-              description: "Profil user",
+              description: "URL redirect SSO",
               content: {
                 "application/json": {
                   schema: {
                     type: "object",
                     properties: {
                       success: { type: "boolean", example: true },
-                      user: { $ref: "#/components/schemas/User" },
+                      redirect_url: {
+                        type: "string",
+                        example:
+                          "https://accounts.google.com/o/oauth2/v2/auth?...",
+                      },
                     },
                   },
                 },
               },
             },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Token tidak valid" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
-        put: {
-          tags: ["1. Authentication"],
-          summary: "Update Profil Pengguna Saat Ini",
-          description: "Update field seperti full_name, phone, address.",
-          security: [{ bearerAuth: [] }],
+      },
+      "/auth/callback": {
+        get: {
+          tags: ["2. Authentication"],
+          summary: "SSO Callback (dipanggil oleh provider)",
+          description:
+            "Endpoint callback yang dipanggil oleh SSO provider setelah login berhasil",
+          parameters: [
+            {
+              name: "code",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            302: { description: "Redirect ke frontend dengan token" },
+            500: { description: "Login gagal" },
+          },
+        },
+      },
+      "/auth/register": {
+        post: {
+          tags: ["2. Authentication"],
+          summary: "Registrasi pengguna publik",
+          description:
+            "Endpoint untuk registrasi pengguna baru dengan role 'pengguna'",
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputUpdateProfile" },
+                schema: { $ref: "#/components/schemas/RegisterRequest" },
               },
             },
           },
           responses: {
-            200: {
-              description: "Profil diperbarui",
+            201: {
+              description: "Registrasi berhasil",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "Registrasi publik berhasil",
+                      },
+                      user: { type: "object" },
+                    },
+                  },
+                },
+              },
             },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Token tidak valid" },
-            500: { description: "Terjadi kesalahan server" },
+            400: { description: "Username atau email sudah digunakan" },
+          },
+        },
+      },
+      "/auth/logout": {
+        post: {
+          tags: ["2. Authentication"],
+          summary: "Logout",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Logout berhasil",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/SuccessResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/auth/me": {
+        get: {
+          tags: ["2. Authentication"],
+          summary: "Get profil user yang sedang login",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Data profil user",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      user: { type: "object" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        put: {
+          tags: ["2. Authentication"],
+          summary: "Update profil user",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UpdateProfileRequest" },
+              },
+            },
+          },
+          responses: {
+            200: { description: "Profil berhasil diperbarui" },
           },
         },
       },
       "/auth/forgot-password": {
         post: {
-          tags: ["1. Authentication"],
-          summary: "Lupa Password",
-          description: "Kirim link reset password ke email (jika terdaftar).",
+          tags: ["2. Authentication"],
+          summary: "Lupa password",
           requestBody: {
-            required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputForgotPassword" },
+                schema: { $ref: "#/components/schemas/ForgotPasswordRequest" },
               },
             },
           },
           responses: {
-            200: {
-              description: "Link reset password telah dikirim ke email Anda",
-            },
-            400: { description: "Email harus diisi" },
-            500: { description: "Terjadi kesalahan server" },
+            200: { description: "Link reset password telah dikirim" },
           },
         },
       },
 
-      // --- 2. Incidents ---
+      // ============= 3. INCIDENTS =============
       "/incidents": {
         post: {
-          tags: ["2. Incidents"],
-          summary: "Buat Insiden Baru (Internal)",
+          tags: ["3. Incidents"],
+          summary: "Buat insiden baru (internal)",
           description:
-            "Buat tiket insiden baru (untuk pegawai yang login). Memerlukan izin 'incidents.create'. Urgency & Impact di-set default 'Medium' oleh server.",
+            "Untuk pegawai yang sudah login. Reporter diambil dari token.",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputCreateIncident" },
+                schema: { $ref: "#/components/schemas/CreateIncidentInternal" },
               },
             },
           },
           responses: {
             201: { description: "Incident berhasil dibuat" },
             400: { description: "Data tidak lengkap" },
-            401: { description: "Token tidak ditemukan" },
-            403: {
-              description:
-                "Permission tidak cukup (memerlukan incidents.create)",
-            },
-            500: { description: "Terjadi kesalahan server" },
+            500: { description: "Server error" },
           },
         },
         get: {
-          tags: ["2. Incidents"],
-          summary: "Dapatkan Daftar Insiden",
-          description:
-            "Daftar insiden dengan filter dan pagination (role-based).",
+          tags: ["3. Incidents"],
+          summary: "List insiden (dengan filter & pagination)",
           security: [{ bearerAuth: [] }],
           parameters: [
-            { name: "status", in: "query", schema: { type: "string" } },
-            { name: "priority", in: "query", schema: { type: "string" } },
-            { name: "search", in: "query", schema: { type: "string" } },
-            { name: "opd_id", in: "query", schema: { type: "integer" } },
+            {
+              name: "status",
+              in: "query",
+              schema: { type: "string" },
+              description: "Filter by status",
+            },
+            {
+              name: "priority",
+              in: "query",
+              schema: { type: "string" },
+              description: "Filter by priority",
+            },
+            {
+              name: "search",
+              in: "query",
+              schema: { type: "string" },
+              description: "Search by title/ticket number",
+            },
+            {
+              name: "opd_id",
+              in: "query",
+              schema: { type: "integer" },
+              description: "Filter by OPD",
+            },
             {
               name: "verification_status",
               in: "query",
@@ -982,19 +1028,30 @@ const swaggerOptions = {
             },
           ],
           responses: {
-            200: { description: "Daftar insiden" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Token tidak valid" },
-            500: { description: "Terjadi kesalahan server" },
+            200: {
+              description: "List insiden",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      data: { type: "array", items: { type: "object" } },
+                      pagination: {
+                        $ref: "#/components/schemas/PaginationResponse",
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
       "/incidents/{id}": {
         get: {
-          tags: ["2. Incidents"],
-          summary: "Dapatkan Detail Insiden",
-          description:
-            "Detail insiden beserta relasi (reporter, attachments, progress, comments, logs).",
+          tags: ["3. Incidents"],
+          summary: "Detail insiden",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1005,18 +1062,34 @@ const swaggerOptions = {
             },
           ],
           responses: {
-            200: { description: "Detail insiden" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Token tidak valid atau akses ditolak" },
+            200: {
+              description:
+                "Detail insiden dengan attachments, progress, comments, dan logs",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      ticket: { type: "object" },
+                      attachments: { type: "array", items: { type: "object" } },
+                      progress_updates: {
+                        type: "array",
+                        items: { type: "object" },
+                      },
+                      comments: { type: "array", items: { type: "object" } },
+                      logs: { type: "array", items: { type: "object" } },
+                    },
+                  },
+                },
+              },
+            },
             404: { description: "Incident tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
         put: {
-          tags: ["2. Incidents"],
-          summary: "Update Insiden (General)",
-          description:
-            "Update field general seperti title, description, category, status. (Bukan untuk klasifikasi).",
+          tags: ["3. Incidents"],
+          summary: "Update insiden",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1027,28 +1100,23 @@ const swaggerOptions = {
             },
           ],
           requestBody: {
-            required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputUpdateIncident" },
+                schema: { $ref: "#/components/schemas/UpdateIncidentRequest" },
               },
             },
           },
           responses: {
             200: { description: "Incident berhasil diperbarui" },
-            400: { description: "Tidak ada data untuk diupdate" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
       "/incidents/{id}/classify": {
         put: {
-          tags: ["2. Incidents"],
-          summary: "(Seksi) Klasifikasi Urgency & Impact Insiden",
+          tags: ["3. Incidents"],
+          summary: "Klasifikasi insiden (Urgency & Impact)",
           description:
-            "Endpoint khusus untuk Seksi mengatur Urgency dan Impact. Ini akan otomatis menghitung ulang Prioritas dan SLA.",
+            "Untuk role 'seksi' - mengklasifikasi urgency dan impact, sistem akan menghitung prioritas dan SLA",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1062,79 +1130,138 @@ const swaggerOptions = {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputClassifyIncident" },
+                schema: {
+                  $ref: "#/components/schemas/ClassifyIncidentRequest",
+                },
               },
             },
           },
           responses: {
-            200: { description: "Insiden berhasil diklasifikasi" },
-            400: { description: "Urgency dan impact harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup (Hanya Seksi/Admin)" },
-            404: { description: "Tiket tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
+            200: {
+              description:
+                "Insiden berhasil diklasifikasi dan prioritas diperbarui",
+            },
           },
         },
       },
       "/incidents/merge": {
         post: {
-          tags: ["2. Incidents"],
-          summary: "Merge Insiden",
-          description: "Gabung beberapa insiden duplikat menjadi satu.",
+          tags: ["3. Incidents"],
+          summary: "Merge beberapa insiden menjadi satu",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputMergeIncidents" },
+                schema: { $ref: "#/components/schemas/MergeIncidentsRequest" },
               },
             },
           },
           responses: {
             200: { description: "Incidents berhasil di-merge" },
-            400: { description: "Data tidak lengkap" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
 
-      // --- 3. Service Requests ---
+      // ============= 4. SERVICE REQUESTS =============
+      "/catalog": {
+        get: {
+          tags: ["5. Service Catalog"],
+          summary: "List katalog layanan",
+          description:
+            "Mendapatkan katalog dengan struktur: Catalog → Sub Layanan → Service Items",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "opd_id", in: "query", schema: { type: "integer" } },
+            {
+              name: "is_active",
+              in: "query",
+              schema: { type: "string", enum: ["true", "false"] },
+            },
+          ],
+          responses: {
+            200: {
+              description: "List katalog dengan sub layanan",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      count: { type: "integer", example: 5 },
+                      catalogs: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "integer" },
+                            catalog_name: {
+                              type: "string",
+                              example: "Layanan IT",
+                            },
+                            total_items: { type: "integer", example: 10 },
+                            sub_layanan: {
+                              type: "array",
+                              items: {
+                                type: "object",
+                                properties: {
+                                  id: { type: "integer" },
+                                  sub_catalog_name: {
+                                    type: "string",
+                                    example: "Layanan Email",
+                                  },
+                                  description: { type: "string" },
+                                  approval_required: { type: "boolean" },
+                                  service_items: {
+                                    type: "array",
+                                    items: {
+                                      type: "object",
+                                      properties: {
+                                        id: { type: "integer" },
+                                        item_name: {
+                                          type: "string",
+                                          example: "Buat Akun Email Baru",
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       "/requests": {
         post: {
-          tags: ["3. Service Requests"],
-          summary: "Buat Service Request Baru",
+          tags: ["4. Service Requests"],
+          summary: "Buat service request (internal)",
           description:
-            "Membuat tiket permintaan layanan baru dari katalog (untuk 'pegawai_opd' atau 'admin'). Memerlukan izin 'requests.create'. OPD ID diambil otomatis dari token.",
+            "OPD ID diambil dari token, Catalog ID diambil dari Service Item ID",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputCreateRequest" },
+                schema: { $ref: "#/components/schemas/CreateRequestInternal" },
               },
             },
           },
           responses: {
             201: { description: "Service request berhasil dibuat" },
-            400: {
-              description:
-                "Data tidak lengkap atau Akun tidak terhubung ke OPD",
-            },
-            401: { description: "Token tidak ditemukan" },
-            403: {
-              description:
-                "Permission tidak cukup (memerlukan requests.create)",
-            },
-            404: { description: "Service Item (Layanan) tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
+            400: { description: "Data tidak lengkap" },
           },
         },
         get: {
-          tags: ["3. Service Requests"],
-          summary: "Dapatkan Daftar Request",
-          description: "Daftar service request dengan filter (role-based).",
+          tags: ["4. Service Requests"],
+          summary: "List service requests",
           security: [{ bearerAuth: [] }],
           parameters: [
             { name: "status", in: "query", schema: { type: "string" } },
@@ -1152,18 +1279,14 @@ const swaggerOptions = {
             },
           ],
           responses: {
-            200: { description: "Daftar request" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Token tidak valid" },
-            500: { description: "Terjadi kesalahan server" },
+            200: { description: "List service requests" },
           },
         },
       },
       "/requests/{id}": {
         get: {
-          tags: ["3. Service Requests"],
-          summary: "Dapatkan Detail Request",
-          description: "Detail request beserta approval, progress, dll.",
+          tags: ["4. Service Requests"],
+          summary: "Detail service request",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1174,17 +1297,30 @@ const swaggerOptions = {
             },
           ],
           responses: {
-            200: { description: "Detail request" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Akses ditolak" },
-            404: { description: "Service request tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
+            200: {
+              description: "Detail request dengan approvals dan progress",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      ticket: { type: "object" },
+                      approvals: { type: "array", items: { type: "object" } },
+                      progress_updates: {
+                        type: "array",
+                        items: { type: "object" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
         put: {
-          tags: ["3. Service Requests"],
-          summary: "Update Service Request (General)",
-          description: "Update status atau progress notes oleh teknisi.",
+          tags: ["4. Service Requests"],
+          summary: "Update service request",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1195,17 +1331,13 @@ const swaggerOptions = {
             },
           ],
           requestBody: {
-            required: true,
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
-                    status: { type: "string", example: "in_progress" },
-                    progress_notes: {
-                      type: "string",
-                      example: "Sedang dikerjakan",
-                    },
+                    status: { type: "string" },
+                    progress_notes: { type: "string" },
                   },
                 },
               },
@@ -1213,17 +1345,13 @@ const swaggerOptions = {
           },
           responses: {
             200: { description: "Service request berhasil diperbarui" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
       "/requests/{id}/approve": {
         post: {
-          tags: ["3. Service Requests"],
-          summary: "Approve Service Request",
-          description: "Menyetujui service request (untuk Bidang, Seksi, dll)",
+          tags: ["4. Service Requests"],
+          summary: "Approve service request",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1236,23 +1364,19 @@ const swaggerOptions = {
           requestBody: {
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputRequestApproval" },
+                schema: { $ref: "#/components/schemas/ApprovalRequest" },
               },
             },
           },
           responses: {
             200: { description: "Service request berhasil disetujui" },
-            401: { description: "Token tidak ditemukan" },
-            404: { description: "Approval tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
       "/requests/{id}/reject": {
         post: {
-          tags: ["3. Service Requests"],
-          summary: "Reject Service Request",
-          description: "Menolak service request (untuk Bidang, Seksi, dll)",
+          tags: ["4. Service Requests"],
+          summary: "Reject service request",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1266,73 +1390,25 @@ const swaggerOptions = {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputRequestReject" },
+                schema: { $ref: "#/components/schemas/RejectRequest" },
               },
             },
           },
           responses: {
             200: { description: "Service request berhasil ditolak" },
-            400: { description: "Alasan penolakan harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            404: { description: "Approval tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
 
-      // --- 4. Service Catalog ---
-      "/catalog": {
-        get: {
-          tags: ["4. Service Catalog"],
-          summary: "Dapatkan Daftar Katalog Layanan",
-          description:
-            "Daftar katalog dengan sub_layanan dan detail. Struktur JSON sudah disesuaikan untuk dropdown frontend (sub_catalog_name, service_items).",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "opd_id", in: "query", schema: { type: "integer" } },
-            { name: "is_active", in: "query", schema: { type: "string" } },
-          ],
-          responses: {
-            200: {
-              description: "Daftar katalog",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      count: { type: "integer" },
-                      catalogs: {
-                        type: "array",
-                        items: { $ref: "#/components/schemas/ServiceCatalog" },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Token tidak valid" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-
-      // --- 5. Knowledge Base (KB) ---
+      // ============= 6. KNOWLEDGE BASE =============
       "/kb": {
         get: {
-          tags: ["5. Knowledge Base (KB)"],
-          summary: "Dapatkan Artikel KB",
-          description:
-            "Daftar artikel KB dengan filter, pagination, dan search.",
+          tags: ["6. Knowledge Base"],
+          summary: "List artikel KB",
           security: [{ bearerAuth: [] }],
           parameters: [
             { name: "category", in: "query", schema: { type: "string" } },
-            {
-              name: "status",
-              in: "query",
-              schema: { type: "string", default: "published" },
-            },
+            { name: "status", in: "query", schema: { type: "string" } },
             { name: "search", in: "query", schema: { type: "string" } },
             {
               name: "page",
@@ -1346,39 +1422,31 @@ const swaggerOptions = {
             },
           ],
           responses: {
-            200: { description: "Daftar artikel" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
+            200: { description: "List artikel KB" },
           },
         },
         post: {
-          tags: ["5. Knowledge Base (KB)"],
-          summary: "Buat Artikel KB Baru",
-          description: "Membuat artikel KB baru (status awal 'draft').",
+          tags: ["6. Knowledge Base"],
+          summary: "Buat artikel KB baru",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputCreateKB" },
+                schema: { $ref: "#/components/schemas/CreateKBRequest" },
               },
             },
           },
           responses: {
             201: { description: "Artikel KB berhasil dibuat (draft)" },
-            400: { description: "Title dan content harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
       "/kb/suggest": {
         get: {
-          tags: ["5. Knowledge Base (KB)"],
-          summary: "Dapatkan Saran Artikel KB",
-          description:
-            "Saran artikel saat user mengetik tiket baru (deflection).",
+          tags: ["6. Knowledge Base"],
+          summary: "Suggest artikel KB",
+          description: "Mendapatkan saran artikel berdasarkan query",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1389,18 +1457,14 @@ const swaggerOptions = {
             },
           ],
           responses: {
-            200: { description: "Saran artikel" },
-            400: { description: "Query harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
+            200: { description: "Saran artikel KB" },
           },
         },
       },
       "/kb/{id}": {
         get: {
-          tags: ["5. Knowledge Base (KB)"],
-          summary: "Dapatkan Detail Artikel KB",
-          description: "Membaca satu artikel KB. Akan menambah view_count.",
+          tags: ["6. Knowledge Base"],
+          summary: "Detail artikel KB",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1411,16 +1475,13 @@ const swaggerOptions = {
             },
           ],
           responses: {
-            200: { description: "Detail artikel" },
-            401: { description: "Token tidak ditemukan" },
+            200: { description: "Detail artikel (view count akan bertambah)" },
             404: { description: "Artikel tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
         put: {
-          tags: ["5. Knowledge Base (KB)"],
-          summary: "Update Artikel KB",
-          description: "Update title, content, category, atau tags artikel.",
+          tags: ["6. Knowledge Base"],
+          summary: "Update artikel KB",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1433,21 +1494,17 @@ const swaggerOptions = {
           requestBody: {
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputUpdateKB" },
+                schema: { $ref: "#/components/schemas/UpdateKBRequest" },
               },
             },
           },
           responses: {
             200: { description: "Artikel KB berhasil diperbarui" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
         delete: {
-          tags: ["5. Knowledge Base (KB)"],
-          summary: "Hapus Artikel KB",
-          description: "Hapus artikel KB.",
+          tags: ["6. Knowledge Base"],
+          summary: "Hapus artikel KB",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1459,20 +1516,376 @@ const swaggerOptions = {
           ],
           responses: {
             200: { description: "Artikel KB berhasil dihapus" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
 
-      // --- 6. Assets & QR Code ---
-      "/assets/qr/:qr_code": {
+      // ============= 7. DASHBOARD =============
+      "/dashboard": {
         get: {
-          tags: ["6. Assets & QR Code"],
-          summary: "Scan QR Code Aset",
-          description:
-            "Proses scan QR untuk pengguna atau teknisi (create ticket atau check-in).",
+          tags: ["7. Dashboard"],
+          summary: "Dashboard statistics",
+          description: "Statistik tiket berdasarkan role user",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Dashboard data",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      dashboard: {
+                        type: "object",
+                        properties: {
+                          total_tickets: { type: "integer", example: 150 },
+                          by_status: {
+                            type: "object",
+                            properties: {
+                              open: { type: "integer", example: 25 },
+                              assigned: { type: "integer", example: 30 },
+                              in_progress: { type: "integer", example: 40 },
+                              resolved: { type: "integer", example: 35 },
+                              closed: { type: "integer", example: 20 },
+                            },
+                          },
+                          by_priority: {
+                            type: "object",
+                            properties: {
+                              low: { type: "integer", example: 30 },
+                              medium: { type: "integer", example: 60 },
+                              high: { type: "integer", example: 40 },
+                              major: { type: "integer", example: 20 },
+                            },
+                          },
+                          role: { type: "string", example: "admin_kota" },
+                          scope: { type: "string", example: "All OPD" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+
+      // ============= 8. SEARCH =============
+      "/search": {
+        get: {
+          tags: ["8. Search"],
+          summary: "Pencarian global",
+          description: "Cari di tickets dan knowledge base",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "q",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description: "Query pencarian",
+            },
+            {
+              name: "type",
+              in: "query",
+              schema: { type: "string", enum: ["tickets", "kb"] },
+              description: "Tipe pencarian",
+            },
+            {
+              name: "page",
+              in: "query",
+              schema: { type: "integer", default: 1 },
+            },
+            {
+              name: "limit",
+              in: "query",
+              schema: { type: "integer", default: 20 },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Hasil pencarian",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      query: { type: "string" },
+                      results: {
+                        type: "object",
+                        properties: {
+                          tickets: {
+                            type: "object",
+                            properties: {
+                              data: {
+                                type: "array",
+                                items: { type: "object" },
+                              },
+                              count: { type: "integer" },
+                            },
+                          },
+                          kb: {
+                            type: "object",
+                            properties: {
+                              data: {
+                                type: "array",
+                                items: { type: "object" },
+                              },
+                              count: { type: "integer" },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+
+      // ============= 9. SYNC =============
+      "/sync": {
+        post: {
+          tags: ["9. Sync"],
+          summary: "Sinkronisasi data offline",
+          description: "Untuk mobile app yang bekerja offline",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    tickets: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          local_id: { type: "string" },
+                          type: { type: "string" },
+                          title: { type: "string" },
+                          description: { type: "string" },
+                        },
+                      },
+                    },
+                    progress_updates: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          local_id: { type: "string" },
+                          ticket_id: { type: "integer" },
+                          update_number: { type: "integer" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Sinkronisasi selesai",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      message: { type: "string" },
+                      results: {
+                        type: "object",
+                        properties: {
+                          tickets: { type: "array", items: { type: "object" } },
+                          progress_updates: {
+                            type: "array",
+                            items: { type: "object" },
+                          },
+                          errors: { type: "array", items: { type: "object" } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+
+      // ============= 10. ADMIN - USERS =============
+      "/admin/users": {
+        get: {
+          tags: ["10. Admin - Users"],
+          summary: "List users",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "role", in: "query", schema: { type: "string" } },
+            { name: "opd_id", in: "query", schema: { type: "integer" } },
+            {
+              name: "is_active",
+              in: "query",
+              schema: { type: "string", enum: ["true", "false"] },
+            },
+            {
+              name: "page",
+              in: "query",
+              schema: { type: "integer", default: 1 },
+            },
+            {
+              name: "limit",
+              in: "query",
+              schema: { type: "integer", default: 20 },
+            },
+          ],
+          responses: {
+            200: { description: "List users" },
+          },
+        },
+        post: {
+          tags: ["10. Admin - Users"],
+          summary: "Buat user baru (untuk admin)",
+          description: "Hanya admin yang bisa membuat user pegawai",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CreateUserRequest" },
+              },
+            },
+          },
+          responses: {
+            201: { description: "Akun pegawai berhasil dibuat" },
+            400: { description: "Username atau email sudah digunakan" },
+          },
+        },
+      },
+      "/admin/users/{id}/role": {
+        put: {
+          tags: ["10. Admin - Users"],
+          summary: "Update role user",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "integer" },
+            },
+          ],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UpdateUserRoleRequest" },
+              },
+            },
+          },
+          responses: {
+            200: { description: "Role user berhasil diperbarui" },
+          },
+        },
+      },
+
+      // ============= 11. ADMIN - OPD =============
+      "/admin/opd": {
+        get: {
+          tags: ["11. Admin - OPD"],
+          summary: "List OPD",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "is_active",
+              in: "query",
+              schema: { type: "string", enum: ["true", "false"] },
+            },
+            {
+              name: "page",
+              in: "query",
+              schema: { type: "integer", default: 1 },
+            },
+            {
+              name: "limit",
+              in: "query",
+              schema: { type: "integer", default: 20 },
+            },
+          ],
+          responses: {
+            200: { description: "List OPD" },
+          },
+        },
+      },
+      "/admin/opd/{id}/calendar": {
+        put: {
+          tags: ["11. Admin - OPD"],
+          summary: "Update kalender OPD",
+          description: "Update jam kerja dan hari libur OPD",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "integer" },
+            },
+          ],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/UpdateOpdCalendarRequest",
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: "Kalender OPD berhasil diperbarui" },
+          },
+        },
+      },
+
+      // ============= 12. ADMIN - TECHNICIANS =============
+      "/admin/technicians/{id}/skills": {
+        put: {
+          tags: ["12. Admin - Technicians"],
+          summary: "Update skills teknisi",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "integer" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/UpdateTechnicianSkillsRequest",
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: "Skills teknisi berhasil diperbarui" },
+          },
+        },
+      },
+
+      // ============= 13. ASSETS & QR =============
+      "/assets/qr/{qr_code}": {
+        get: {
+          tags: ["13. Assets & QR"],
+          summary: "Scan QR Code asset",
+          description: "Untuk pengguna: info asset. Untuk teknisi: check-in",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1480,272 +1893,39 @@ const swaggerOptions = {
               in: "path",
               required: true,
               schema: { type: "string" },
+              example: "QR-ASSET-001",
             },
           ],
           responses: {
-            200: { description: "QR diproses" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Role tidak valid untuk scan QR" },
-            404: { description: "Asset tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-
-      // --- 7. Admin ---
-      "/admin/users": {
-        get: {
-          tags: ["7. Admin"],
-          summary: "Dapatkan Daftar User (Admin)",
-          description:
-            "Admin mendapatkan daftar user dengan filter dan pagination.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "role", in: "query", schema: { type: "string" } },
-            { name: "opd_id", in: "query", schema: { type: "integer" } },
-            { name: "is_active", in: "query", schema: { type: "string" } },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: { description: "Daftar user" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-        post: {
-          tags: ["7. Admin"],
-          summary: "Buat User Baru oleh Admin",
-          description:
-            "Admin buat user internal (pegawai) dengan role dan OPD spesifik.",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputCreateAdminUser" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Akun pegawai berhasil dibuat" },
-            400: { description: "Role tidak valid atau data tidak lengkap" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/admin/users/{id}/role": {
-        put: {
-          tags: ["7. Admin"],
-          summary: "Update Role User oleh Admin",
-          description: "Update role, OPD, bidang, seksi, atau status aktif.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputUpdateUserRole" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Role user berhasil diperbarui" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/admin/opd": {
-        get: {
-          tags: ["7. Admin"],
-          summary: "Dapatkan Daftar OPD",
-          description: "Daftar OPD dengan filter dan pagination.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "is_active", in: "query", schema: { type: "string" } },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: { description: "Daftar OPD" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/admin/opd/{id}/branding": {
-        put: {
-          tags: ["7. Admin"],
-          summary: "Update Branding OPD",
-          description: "Update logo dan warna branding OPD.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputUpdateOpdBranding" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Branding OPD berhasil diperbarui" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/admin/opd/{id}/calendar": {
-        get: {
-          tags: ["7. Admin"],
-          summary: "Dapatkan Kalender OPD",
-          description: "Dapatkan working hours dan holidays OPD.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          responses: {
-            200: { description: "Kalender OPD" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-        put: {
-          tags: ["7. Admin"],
-          summary: "Update Kalender OPD",
-          description: "Update working hours dan holidays OPD.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputUpdateOpdCalendar" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Kalender OPD berhasil diperbarui" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/admin/technicians/{id}/skills": {
-        put: {
-          tags: ["7. Admin"],
-          summary: "Update Skills Teknisi",
-          description:
-            "Update skills, expertise level, dan certifications teknisi.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/InputUpdateTechnicianSkills",
+            200: {
+              description: "Info asset",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      action: {
+                        type: "string",
+                        enum: ["create_ticket", "technician_check_in"],
+                      },
+                      message: { type: "string" },
+                      asset: { type: "object" },
+                    },
+                  },
                 },
               },
             },
-          },
-          responses: {
-            200: { description: "Skills teknisi berhasil diperbarui" },
-            400: { description: "Skills harus berupa array" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/admin/technicians/check-in": {
-        post: {
-          tags: ["7. Admin"],
-          summary: "Check-In Teknisi",
-          description: "Check-in teknisi ke aset dengan lokasi.",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputTechnicianCheckIn" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Check-in berhasil" },
-            400: { description: "asset_id atau qr_code harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
+            404: { description: "Asset tidak ditemukan" },
           },
         },
       },
 
-      // --- 8. Attachments & Comments ---
+      // ============= 14. COMMENTS =============
       "/incidents/{id}/comments": {
         post: {
-          tags: ["8. Attachments & Comments"],
-          summary: "Tambah Komentar ke Insiden",
-          description: "Tambah komentar atau internal note.",
+          tags: ["14. Comments"],
+          summary: "Tambah komentar pada insiden",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1759,24 +1939,19 @@ const swaggerOptions = {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputComment" },
+                schema: { $ref: "#/components/schemas/CreateCommentRequest" },
               },
             },
           },
           responses: {
             201: { description: "Komentar berhasil ditambahkan" },
-            400: { description: "Konten komentar harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
       "/requests/{id}/comments": {
         post: {
-          tags: ["8. Attachments & Comments"],
-          summary: "Tambah Komentar ke Request",
-          description: "Tambah komentar atau internal note ke request.",
+          tags: ["14. Comments"],
+          summary: "Tambah komentar pada request",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1790,23 +1965,21 @@ const swaggerOptions = {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InputComment" },
+                schema: { $ref: "#/components/schemas/CreateCommentRequest" },
               },
             },
           },
           responses: {
             201: { description: "Komentar berhasil ditambahkan" },
-            // Mirip incidents/comments
           },
         },
       },
 
-      // --- 9. Progress Updates ---
+      // ============= 15. PROGRESS UPDATES =============
       "/incidents/{id}/progress": {
         post: {
-          tags: ["9. Progress Updates"],
-          summary: "Tambah Progress Update ke Insiden",
-          description: "Update progress oleh teknisi, update status tiket.",
+          tags: ["15. Progress Updates"],
+          summary: "Tambah progress update untuk insiden",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1821,25 +1994,20 @@ const swaggerOptions = {
             content: {
               "application/json": {
                 schema: {
-                  $ref: "#/components/schemas/InputProgressUpdateIncident",
+                  $ref: "#/components/schemas/CreateProgressIncidentRequest",
                 },
               },
             },
           },
           responses: {
             201: { description: "Progress update berhasil ditambahkan" },
-            400: { description: "Update number dan status harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
           },
         },
       },
       "/requests/{id}/progress": {
         post: {
-          tags: ["9. Progress Updates"],
-          summary: "Tambah Progress Update ke Request",
-          description: "Update progress untuk service request.",
+          tags: ["15. Progress Updates"],
+          summary: "Tambah progress update untuk request",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1854,96 +2022,22 @@ const swaggerOptions = {
             content: {
               "application/json": {
                 schema: {
-                  $ref: "#/components/schemas/InputProgressUpdateRequest",
+                  $ref: "#/components/schemas/CreateProgressRequestRequest",
                 },
               },
             },
           },
           responses: {
             201: { description: "Progress update berhasil ditambahkan" },
-            // Mirip incidents/progress
           },
         },
       },
 
-      // --- 10. Audit & Stats ---
-      "/dashboard": {
-        get: {
-          tags: ["10. Audit & Stats"],
-          summary: "Dapatkan Data Dashboard",
-          description:
-            "Statistik ringkas untuk dashboard berdasarkan role (total, by status, by priority).",
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: { description: "Data dashboard" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/reports/sla": {
-        get: {
-          tags: ["10. Audit & Stats"],
-          summary: "Dapatkan Laporan SLA",
-          description: "Laporan kepatuhan SLA dengan filter.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "opd_id", in: "query", schema: { type: "integer" } },
-            {
-              name: "date_from",
-              in: "query",
-              schema: { type: "string", format: "date" },
-            },
-            {
-              name: "date_to",
-              in: "query",
-              schema: { type: "string", format: "date" },
-            },
-          ],
-          responses: {
-            200: { description: "Laporan SLA" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/reports/performance": {
-        get: {
-          tags: ["10. Audit & Stats"],
-          summary: "Dapatkan Laporan Kinerja Teknisi",
-          description: "Laporan kinerja teknisi dengan filter.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "technician_id",
-              in: "query",
-              schema: { type: "integer" },
-            },
-            {
-              name: "date_from",
-              in: "query",
-              schema: { type: "string", format: "date" },
-            },
-            {
-              name: "date_to",
-              in: "query",
-              schema: { type: "string", format: "date" },
-            },
-          ],
-          responses: {
-            200: { description: "Laporan kinerja" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
+      // ============= 16. AUDIT LOGS =============
       "/admin/audit-logs": {
         get: {
-          tags: ["10. Audit & Stats"],
-          summary: "Dapatkan Audit Logs",
-          description: "Daftar log aktivitas dengan filter dan pagination.",
+          tags: ["16. Audit Logs"],
+          summary: "List audit logs",
           security: [{ bearerAuth: [] }],
           parameters: [
             { name: "user_id", in: "query", schema: { type: "integer" } },
@@ -1970,184 +2064,12 @@ const swaggerOptions = {
             },
           ],
           responses: {
-            200: { description: "Daftar audit logs" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
+            200: { description: "List audit logs" },
           },
         },
       },
-      "/admin/stats": {
-        get: {
-          tags: ["10. Audit & Stats"],
-          summary: "Dapatkan Statistik Sistem",
-          description: "Statistik seperti total users, tickets, assets, dll.",
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: { description: "Statistik sistem" },
-            401: { description: "Token tidak ditemukan" },
-            403: { description: "Permission tidak cukup" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-
-      // --- 11. Utilities ---
-      "/notifications": {
-        get: {
-          tags: ["11. Utilities"],
-          summary: "Dapatkan Notifikasi User",
-          description: "Daftar notifikasi untuk user yang login.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "is_read", in: "query", schema: { type: "string" } },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: { description: "Daftar notifikasi" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/notifications/mark-read": {
-        post: {
-          tags: ["11. Utilities"],
-          summary: "Tandai Notifikasi Sudah Dibaca",
-          description: "Tandai satu atau lebih notifikasi sebagai 'read'.",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputMarkRead" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Notifikasi berhasil ditandai" },
-            400: { description: "notification_ids harus berupa array" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/search": {
-        get: {
-          tags: ["11. Utilities"],
-          summary: "Pencarian Global",
-          description: "Cari di tiket dan KB.",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "q",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-            },
-            {
-              name: "type",
-              in: "query",
-              schema: { type: "string", enum: ["tickets", "kb"] },
-            },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: { description: "Hasil pencarian" },
-            400: { description: "Query pencarian harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/survey": {
-        post: {
-          tags: ["11. Utilities"],
-          summary: "Submit Survey Kepuasan",
-          description: "User mengisi survey setelah tiket selesai.",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputSurvey" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Survey berhasil dikirim" },
-            400: { description: "ticket_id dan rating harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/chat/send": {
-        post: {
-          tags: ["11. Utilities"],
-          summary: "Kirim Pesan Chat",
-          description: "Kirim pesan ke helpdesk/bot.",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputChat" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Pesan berhasil dikirim" },
-            400: { description: "Message harus diisi" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-      "/sync": {
-        post: {
-          tags: ["11. Utilities"],
-          summary: "Sinkronisasi Offline Mobile",
-          description:
-            "Endpoint untuk mobile client mengirim data offline (tiket, progress).",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/InputSync" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Sinkronisasi selesai" },
-            401: { description: "Token tidak ditemukan" },
-            500: { description: "Terjadi kesalahan server" },
-          },
-        },
-      },
-    }, // Akhir dari 'paths'
-  }, // Akhir dari 'definition'
-
-  // Karena definisi manual, apis kosong
+    },
+  },
   apis: [],
 };
 
@@ -2160,11 +2082,24 @@ const swaggerUiOptions = {
   customCss: `
     .swagger-ui .topbar { display: none }
     .swagger-ui .info { margin: 30px 0; }
-    .swagger-ui .info .title { color: #007bff; }
-    .swagger-ui .opblock-tag { background-color: #f0f0f0; }
-    .swagger-ui .btn.authorize { background-color: #007bff; border-color: #007bff; }
+    .swagger-ui .info .title { color: #007bff; font-weight: bold; }
+    .swagger-ui .opblock-tag { 
+      background-color: #f8f9fa; 
+      border-left: 4px solid #007bff;
+      font-weight: 600;
+    }
+    .swagger-ui .btn.authorize { 
+      background-color: #007bff; 
+      border-color: #007bff; 
+    }
+    .swagger-ui .btn.authorize svg { fill: #fff; }
+    .swagger-ui .opblock.opblock-post { border-color: #49cc90; background: rgba(73, 204, 144, 0.1); }
+    .swagger-ui .opblock.opblock-get { border-color: #61affe; background: rgba(97, 175, 254, 0.1); }
+    .swagger-ui .opblock.opblock-put { border-color: #fca130; background: rgba(252, 161, 48, 0.1); }
+    .swagger-ui .opblock.opblock-delete { border-color: #f93e3e; background: rgba(249, 62, 62, 0.1); }
   `,
-  customSiteTitle: "Service Desk API V2.0 - Docs",
+  customSiteTitle: "Siladan API Documentation v2.0",
+  customfavIcon: "https://www.svgrepo.com/show/354202/postman-icon.svg",
 };
 
 module.exports = {

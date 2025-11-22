@@ -7,12 +7,14 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const crypto = require("crypto");
+const cron = require("node-cron"); // <-- Wajib untuk SRS SLA Reminder
 const swaggerUi = require("swagger-ui-express");
 const { swaggerDocs, swaggerUiOptions } = require("./swagger.js");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
 
 app.get("/api/v1", (req, res) => {
   res.json({
@@ -30,20 +32,29 @@ app.use(
 );
 
 // ===========================================
-// 2. SUPABASE CONNECTION
+// 2. SUPABASE CONNECTION (DUAL CLIENT)
 // ===========================================
+// CLIENT 1: DATABASE LOKAL (Service Desk)
 const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
+  process.env.DB_SUPABASE_URL,
+  process.env.DB_SUPABASE_KEY
 );
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
+
+const supabaseDB = supabase;
+
+// CLIENT 2: SSO PUSAT (Identity Provider)
+const supabaseSSO = createClient(
+  process.env.SSO_SUPABASE_URL,
+  process.env.SSO_SUPABASE_KEY
+);
 
 // Test connection
 (async () => {
   try {
     const { error } = await supabase.from("users").select("count").limit(1);
     if (error) throw error;
-    console.log("✅ Database connected");
+    console.log("✅ Database Service Desk connected");
+    console.log("✅ SSO Client initialized");
   } catch (err) {
     console.error("❌ Database connection error:", err.message);
   }
@@ -54,6 +65,18 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
 // ===========================================
 app.use(cors());
 app.use(express.json());
+
+const v1Router = express.Router();
+app.use("/api/v1", v1Router);
+
+// Root Endpoint
+v1Router.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Welcome to Service Desk API v2.0 (SSO Enabled)",
+    version: "2.0.0",
+  });
+});
 
 // ===========================================
 // 4. RBAC CONFIGURATION
@@ -104,7 +127,6 @@ const RBAC_ROLES = {
     ],
     description: "Kepala Seksi - Recorder",
   },
-  // ... (role teknisi) ...
   teknisi: {
     permissions: [
       "tickets.read",
@@ -117,7 +139,7 @@ const RBAC_ROLES = {
   },
   pengguna: {
     permissions: ["tickets.read", "incidents.create", "kb.read"],
-    description: "Pengguna Publik / Masyarakat (yang terdaftar)",
+    description: "Pengguna Publik / Masyarakat",
   },
   pegawai_opd: {
     permissions: [
@@ -126,7 +148,7 @@ const RBAC_ROLES = {
       "requests.create",
       "kb.read",
     ],
-    description: "Pegawai Internal OPD (Non-teknisi)",
+    description: "Pegawai Internal OPD",
   },
 };
 
@@ -236,6 +258,94 @@ const sendNotification = async (
     console.error("Error sending notification:", error);
   }
 };
+
+// ==========================================
+// 7.1. AUTHENTICATION VIA SSO (TERPISAH)
+// ==========================================
+
+// 1. Redirect ke Project SSO
+v1Router.get("/auth/sso", async (req, res) => {
+  const { provider } = req.query;
+
+  // Gunakan Client SSO untuk generate URL login
+  const { data, error } = await supabaseSSO.auth.signInWithOAuth({
+    provider: provider,
+    options: {
+      redirectTo: `http://localhost:${PORT}/api/v1/auth/callback`,
+    },
+  });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, redirect_url: data.url });
+});
+
+// 2. Callback dari SSO
+v1Router.get("/auth/callback", async (req, res) => {
+  try {
+    const { code } = req.query;
+    if (!code) return res.status(400).json({ error: "No code provided" });
+
+    // LANGKAH A: Tukar Kode dengan Session di PROJECT SSO
+    const { data: sessionData, error: sessionError } =
+      await supabaseSSO.auth.exchangeCodeForSession(code);
+
+    if (sessionError) throw sessionError;
+
+    // Kita dapat data user dari SSO Pusat
+    const ssoUser = sessionData.user;
+    console.log("User terverifikasi di SSO:", ssoUser.email);
+
+    // LANGKAH B: Cek User di PROJECT DATABASE LOKAL
+    let { data: localUser } = await supabaseDB
+      .from("users")
+      .select("*")
+      .eq("email", ssoUser.email)
+      .single();
+
+    // LANGKAH C: Sinkronisasi (Auto-Register di DB Lokal)
+    if (!localUser) {
+      console.log("User baru, mendaftarkan ke database lokal...");
+      // Buat user baru di tabel public.users project Service Desk
+      const { data: newUser, error: createError } = await supabaseDB
+        .from("users")
+        .insert({
+          username: ssoUser.email.split("@")[0], // Generate username
+          email: ssoUser.email,
+          full_name: ssoUser.user_metadata?.full_name || "Pengguna Baru",
+          password: await bcrypt.hash(
+            crypto.randomBytes(16).toString("hex"),
+            10
+          ), // Password dummy
+          role: "pengguna", // Role default
+          sso_id: ssoUser.id, // Simpan ID dari SSO sebagai referensi
+          sso_provider: ssoUser.app_metadata.provider,
+          is_active: true,
+        })
+        .select()
+        .single();
+
+      if (createError) throw createError;
+      localUser = newUser;
+    }
+
+    const token = jwt.sign(
+      {
+        id: localUser.id, // ID dari tabel lokal (Int)
+        sso_uid: ssoUser.id, // ID dari SSO (UUID) - opsional
+        role: localUser.role,
+        opd_id: localUser.opd_id,
+      },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    // Redirect ke Frontend
+    res.redirect(`http://localhost:8080/auth/success?token=${token}`);
+  } catch (error) {
+    console.error("SSO Error:", error);
+    res.status(500).json({ error: "Login Gagal" });
+  }
+});
 // ===========================================
 // 6. MIDDLEWARE AUTHENTICATION & AUTHORIZATION
 // ===========================================
@@ -279,12 +389,6 @@ const authorize = (permission) => {
     }
   };
 };
-
-// ===========================================
-// 7. ROUTES - RESTRUCTURED
-// ===========================================
-const v1Router = express.Router();
-app.use("/api/v1", v1Router);
 
 // ==========================================
 // 7.1. AUTHENTICATION & PROFILE (/auth)
