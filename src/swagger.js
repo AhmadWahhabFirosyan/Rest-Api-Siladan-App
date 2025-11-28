@@ -1,1567 +1,812 @@
-/**
- * =================================================================
- * DOKUMENTASI SWAGGER UNTUK SERVICE DESK API V2.0 (COMPLETE & FIXED)
- * =================================================================
- * Dokumentasi lengkap yang sesuai 100% dengan app.js
- * =================================================================
- */
+const swaggerJsdoc = require("swagger-jsdoc");
 
-const swaggerJsDoc = require("swagger-jsdoc");
-
-const swaggerOptions = {
-  definition: {
-    openapi: "3.0.0",
-    info: {
-      title: "Siladan API - Service Desk System",
-      version: "2.0.0",
-      description:
-        "Dokumentasi REST API Siladan App (SSO Enabled) - Complete & Accurate",
-      contact: {
-        name: "Tim Backend",
-        email: "ahmadwahhabfirosyan@gmail.com",
+const swaggerDefinition = {
+  openapi: "3.0.0",
+  info: {
+    title: "Service Desk API v2.0",
+    version: "2.0.0",
+    description:
+      "Dokumentasi API lengkap untuk sistem Service Desk. API ini mengelola insiden, permintaan layanan, basis pengetahuan, dan pengguna dengan dukungan SSO. Semua response dibungkus dalam format standar JSON.",
+    contact: {
+      name: "Developer Team",
+      email: "http://wa.me/+6281357571468",
+    },
+  },
+  servers: [
+    {
+      url: "http://localhost:8080/api/v1",
+      description: "Development Server",
+    },
+    {
+      url: "https://manpro-473802.et.r.appspot.com/api/v1",
+      description: "Production Server",
+    },
+  ],
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+        description:
+          "Token JWT yang didapat dari endpoint /auth/login atau /auth/callback",
       },
     },
-    servers: [
-      {
-        url: "http://localhost:8080/api/v1",
-        description: "Development Server",
-      },
-      {
-        url: "https://manpro-473802.et.r.appspot.com/api/v1",
-        description: "Production Server",
-      },
-    ],
-    tags: [
-      { name: "0. Root", description: "Base endpoints" },
-      {
-        name: "1. Public Endpoints",
-        description: "Endpoint publik (Tracking & Pelaporan)",
-      },
-      {
-        name: "2. Authentication",
-        description: "Login, SSO, Register, Profil",
-      },
-      { name: "3. Incidents", description: "Manajemen Insiden (Internal)" },
-      {
-        name: "4. Service Requests",
-        description: "Manajemen Permintaan Layanan",
-      },
-      { name: "5. Service Catalog", description: "Katalog Layanan" },
-      { name: "6. Knowledge Base", description: "Artikel & FAQ" },
-      { name: "7. Dashboard", description: "Dashboard & Statistik" },
-      { name: "8. Search", description: "Pencarian Global" },
-      { name: "9. Sync", description: "Sinkronisasi Offline" },
-      { name: "10. Admin - Users", description: "Manajemen User" },
-      { name: "11. Admin - OPD", description: "Manajemen OPD" },
-      { name: "12. Admin - Technicians", description: "Manajemen Teknisi" },
-      { name: "13. Assets & QR", description: "Manajemen Aset & QR Code" },
-      { name: "14. Comments", description: "Komentar Tiket" },
-      { name: "15. Progress Updates", description: "Update Progress Tiket" },
-      { name: "16. Audit Logs", description: "Log Aktivitas" },
-    ],
-    components: {
-      securitySchemes: {
-        bearerAuth: {
-          type: "http",
-          scheme: "bearer",
-          bearerFormat: "JWT",
-          description: "Masukkan token JWT yang didapat dari login",
+    // ==========================================
+    // SCHEMAS (DATA MODELS)
+    // ==========================================
+    schemas: {
+      // --- WRAPPERS ---
+      SuccessResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean", example: true },
+          message: { type: "string", example: "Operation successful" },
         },
       },
-      schemas: {
-        // ============= AUTH SCHEMAS =============
-        LoginRequest: {
-          type: "object",
-          required: ["username", "password"],
-          properties: {
-            username: { type: "string", example: "admin.kota" },
-            password: {
-              type: "string",
-              format: "password",
-              example: "password123",
-            },
-          },
+      ErrorResponse: {
+        type: "object",
+        properties: {
+          error: { type: "string", example: "Deskripsi error yang terjadi" },
         },
-        RegisterRequest: {
-          type: "object",
-          required: ["username", "password", "email", "full_name"],
-          properties: {
-            username: { type: "string", example: "user123" },
-            password: {
-              type: "string",
-              format: "password",
-              example: "password123",
-            },
-            email: {
-              type: "string",
-              format: "email",
-              example: "user@email.com",
-            },
-            full_name: { type: "string", example: "John Doe" },
-            nip: {
-              type: "string",
-              example: "123456789",
-              description: "NIK untuk publik",
-            },
-            phone: { type: "string", example: "081234567890" },
-            address: { type: "string", example: "Jl. Example No. 123" },
-          },
+      },
+      PaginationInfo: {
+        type: "object",
+        properties: {
+          page: { type: "integer", example: 1 },
+          limit: { type: "integer", example: 20 },
+          total: { type: "integer", example: 150 },
+          total_pages: { type: "integer", example: 8 },
         },
-        UpdateProfileRequest: {
-          type: "object",
-          properties: {
-            full_name: { type: "string", example: "John Doe Updated" },
-            phone: { type: "string", example: "081234567890" },
-            address: { type: "string", example: "Jl. Example No. 123" },
-          },
-        },
-        ForgotPasswordRequest: {
-          type: "object",
-          required: ["email"],
-          properties: {
-            email: {
-              type: "string",
-              format: "email",
-              example: "user@email.com",
-            },
-          },
-        },
+      },
 
-        // ============= INCIDENT SCHEMAS =============
-        CreateIncidentInternal: {
-          type: "object",
-          required: ["title", "description"],
-          properties: {
-            title: { type: "string", example: "Printer tidak bisa print" },
-            description: {
-              type: "string",
-              example:
-                "Printer HP LaserJet tidak merespon saat diperintah print",
-            },
-            category: { type: "string", example: "Hardware" },
-            incident_location: { type: "string", example: "Ruang IT Lantai 2" },
-            incident_date: {
-              type: "string",
-              format: "date-time",
-              example: "2025-11-22T09:00:00Z",
-            },
-            opd_id: {
-              type: "integer",
-              example: 1,
-              description: "Opsional, jika tidak diisi akan ambil dari token",
-            },
-            asset_identifier: { type: "string", example: "PRINTER-001" },
-            attachment_url: {
-              type: "string",
-              example: "https://storage.example.com/photo.jpg",
-            },
+      // --- AUTH & USER ---
+      LoginRequest: {
+        type: "object",
+        required: ["username", "password"],
+        properties: {
+          username: { type: "string", example: "admin_kota" },
+          password: {
+            type: "string",
+            example: "password123",
+            format: "password",
           },
         },
-        CreateIncidentPublic: {
-          type: "object",
-          required: [
-            "title",
-            "description",
-            "opd_id",
-            "reporter_name",
-            "reporter_email",
-            "reporter_phone",
-          ],
-          properties: {
-            title: { type: "string", example: "Lampu jalan mati" },
-            description: {
-              type: "string",
-              example:
-                "Lampu jalan di Jl. Pahlawan sudah mati sejak 3 hari yang lalu",
-            },
-            category: { type: "string", example: "Fasilitas Publik" },
-            incident_location: {
-              type: "string",
-              example: "Jl. Pahlawan No. 45",
-            },
-            incident_date: {
-              type: "string",
-              format: "date-time",
-              example: "2025-11-20T18:00:00Z",
-            },
-            opd_id: { type: "integer", example: 5 },
-            asset_identifier: { type: "string", example: "LAMPU-JL-045" },
-            reporter_name: { type: "string", example: "Budi Santoso" },
-            reporter_email: {
-              type: "string",
-              format: "email",
-              example: "budi@gmail.com",
-            },
-            reporter_phone: { type: "string", example: "081234567890" },
-            reporter_address: { type: "string", example: "Jl. Mawar No. 10" },
-            reporter_nik: { type: "string", example: "3578012345678901" },
-            attachment_url: {
-              type: "string",
-              example: "https://storage.example.com/lampu-mati.jpg",
-            },
+      },
+      RegisterRequest: {
+        type: "object",
+        required: ["username", "password", "email", "full_name"],
+        properties: {
+          username: { type: "string", example: "warga01" },
+          password: {
+            type: "string",
+            example: "rahasia123",
+            format: "password",
+          },
+          email: {
+            type: "string",
+            format: "email",
+            example: "warga@email.com",
+          },
+          full_name: { type: "string", example: "Warga Teladan" },
+          nip: {
+            type: "string",
+            example: "3201123456780001",
+            description: "NIK untuk publik, NIP untuk pegawai",
+          },
+          phone: { type: "string", example: "08123456789" },
+          address: { type: "string", example: "Jl. Sudirman No. 10" },
+        },
+      },
+      UserResponse: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          username: { type: "string" },
+          email: { type: "string" },
+          full_name: { type: "string" },
+          nip: { type: "string" },
+          phone: { type: "string" },
+          address: { type: "string" },
+          role: {
+            type: "string",
+            enum: [
+              "super_admin",
+              "admin_kota",
+              "admin_opd",
+              "bidang",
+              "seksi",
+              "helpdesk",
+              "teknisi",
+              "pegawai_opd",
+              "pengguna",
+            ],
+          },
+          opd: {
+            type: "object",
+            nullable: true,
+            properties: { id: { type: "integer" }, name: { type: "string" } },
+          },
+          bidang: {
+            type: "object",
+            nullable: true,
+            properties: { id: { type: "integer" }, name: { type: "string" } },
+          },
+          seksi: {
+            type: "object",
+            nullable: true,
+            properties: { id: { type: "integer" }, name: { type: "string" } },
+          },
+          is_active: { type: "boolean" },
+          last_login_at: { type: "string", format: "date-time" },
+          created_at: { type: "string", format: "date-time" },
+        },
+      },
+      SSORedirectResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean", example: true },
+          redirect_url: {
+            type: "string",
+            example: "https://accounts.google.com/oauth/authorize?...",
           },
         },
-        ClassifyIncidentRequest: {
-          type: "object",
-          required: ["urgency", "impact"],
-          properties: {
-            urgency: { type: "integer", minimum: 1, maximum: 5, example: 4 },
-            impact: { type: "integer", minimum: 1, maximum: 5, example: 3 },
-          },
-        },
-        UpdateIncidentRequest: {
-          type: "object",
-          properties: {
-            title: {
-              type: "string",
-              example: "Printer masih tidak bisa print",
-            },
-            description: {
-              type: "string",
-              example: "Update: Sudah dicoba restart masih belum bisa",
-            },
-            category: { type: "string", example: "Hardware" },
-            status: {
-              type: "string",
-              enum: ["open", "assigned", "in_progress", "resolved", "closed"],
-              example: "in_progress",
-            },
-          },
-        },
-        MergeIncidentsRequest: {
-          type: "object",
-          required: ["source_ticket_ids", "target_ticket_id", "reason"],
-          properties: {
-            source_ticket_ids: {
-              type: "array",
-              items: { type: "integer" },
-              example: [101, 102, 103],
-            },
-            target_ticket_id: { type: "integer", example: 100 },
-            reason: {
-              type: "string",
-              example: "Semua laporan merujuk pada masalah server yang sama",
-            },
-          },
-        },
+      },
 
-        // ============= REQUEST SCHEMAS =============
-        CreateRequestInternal: {
-          type: "object",
-          required: ["title", "description", "service_item_id"],
-          properties: {
-            title: {
-              type: "string",
-              example: "Permintaan pembuatan email baru",
-            },
-            description: {
-              type: "string",
-              example: "Dibutuhkan email untuk pegawai baru di Bagian Keuangan",
-            },
-            service_item_id: { type: "integer", example: 15 },
-            service_detail: {
-              type: "object",
-              example: {
-                nama_pegawai: "Ahmad Wahyudi",
-                nip: "199001012020011001",
-                bagian: "Keuangan",
+      // --- INCIDENTS & REQUESTS (TICKETS) ---
+      IncidentCreateAuth: {
+        type: "object",
+        required: ["title", "description"],
+        properties: {
+          title: { type: "string", example: "Koneksi Internet Putus" },
+          description: {
+            type: "string",
+            example: "Wifi di lantai 3 tidak bisa connect sejak pagi.",
+          },
+          category: { type: "string", example: "Jaringan", default: "Umum" },
+          incident_location: {
+            type: "string",
+            example: "Gedung B, Ruang Rapat",
+          },
+          incident_date: {
+            type: "string",
+            format: "date",
+            example: "2023-10-27",
+          },
+          opd_id: {
+            type: "integer",
+            description:
+              "Isi jika melapor untuk OPD lain. Jika kosong, akan menggunakan OPD pelapor.",
+          },
+          asset_identifier: { type: "string", example: "RT-001" },
+          attachment_url: {
+            type: "string",
+            example: "https://storage.com/img.jpg",
+          },
+        },
+      },
+      IncidentCreatePublic: {
+        type: "object",
+        required: [
+          "title",
+          "description",
+          "opd_id",
+          "reporter_name",
+          "reporter_email",
+          "reporter_phone",
+        ],
+        properties: {
+          title: { type: "string", example: "Lampu Taman Mati" },
+          description: {
+            type: "string",
+            example: "Lampu taman kota mati total.",
+          },
+          category: { type: "string", default: "Umum" },
+          incident_location: {
+            type: "string",
+            example: "Taman Kota Sisi Utara",
+          },
+          opd_id: { type: "integer", example: 5 },
+          asset_identifier: { type: "string" },
+          reporter_name: { type: "string", example: "Budi Santoso" },
+          reporter_email: {
+            type: "string",
+            format: "email",
+            example: "budi@gmail.com",
+          },
+          reporter_phone: { type: "string", example: "08123456789" },
+          reporter_nik: { type: "string", example: "3271000000000001" },
+          reporter_address: { type: "string" },
+          attachment_url: { type: "string" },
+        },
+      },
+      RequestCreate: {
+        type: "object",
+        required: ["title", "description", "service_item_id"],
+        properties: {
+          title: { type: "string", example: "Permintaan Email Dinas" },
+          description: {
+            type: "string",
+            example: "Mohon dibuatkan email untuk pegawai baru.",
+          },
+          service_item_id: {
+            type: "string",
+            format: "uuid",
+            example: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+          },
+          service_detail: {
+            type: "object",
+            example: { username_request: "budi.s", unit: "Keuangan" },
+            description: "JSON object dinamis sesuai form layanan",
+          },
+          attachment_url: { type: "string" },
+          requested_date: { type: "string", format: "date" },
+        },
+      },
+      TicketDetailResponse: {
+        allOf: [
+          { $ref: "#/components/schemas/TicketListResponse" },
+          {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              urgency: { type: "integer" },
+              impact: { type: "integer" },
+              priority_score: { type: "integer" },
+              incident_location: { type: "string" },
+              incident_date: { type: "string", format: "date" },
+              reporter_nip: { type: "string" },
+              asset_name_reported: { type: "string" },
+              reporter_attachment_url: { type: "string" },
+              verification_status: { type: "string" },
+              resolution: { type: "string" },
+              resolved_at: { type: "string", format: "date-time" },
+              closed_at: { type: "string", format: "date-time" },
+              // Relations
+              reporter: { $ref: "#/components/schemas/UserResponse" },
+              recorder: { $ref: "#/components/schemas/UserResponse" },
+              verifier: { $ref: "#/components/schemas/UserResponse" },
+              technician: { $ref: "#/components/schemas/UserResponse" },
+              opd: { $ref: "#/components/schemas/OPDResponse" },
+              bidang: { $ref: "#/components/schemas/BidangResponse" },
+              seksi: { $ref: "#/components/schemas/SeksiResponse" },
+              service_catalog: {
+                $ref: "#/components/schemas/ServiceCatalogItem",
               },
-              description: "Data tambahan terkait request",
-            },
-            attachment_url: {
-              type: "string",
-              example: "https://storage.example.com/sk-pegawai.pdf",
-            },
-            requested_date: {
-              type: "string",
-              format: "date-time",
-              example: "2025-11-25T08:00:00Z",
-            },
-          },
-        },
-        ApprovalRequest: {
-          type: "object",
-          properties: {
-            notes: { type: "string", example: "Disetujui, silakan proses" },
-          },
-        },
-        RejectRequest: {
-          type: "object",
-          required: ["notes"],
-          properties: {
-            notes: {
-              type: "string",
-              example: "Ditolak karena data tidak lengkap",
-            },
-          },
-        },
-
-        // ============= KB SCHEMAS =============
-        CreateKBRequest: {
-          type: "object",
-          required: ["title", "content"],
-          properties: {
-            title: {
-              type: "string",
-              example: "Cara Reset Password Akun Email",
-            },
-            content: {
-              type: "string",
-              example:
-                "Langkah 1: Buka halaman login...\nLangkah 2: Klik 'Lupa Password'...",
-            },
-            category: { type: "string", example: "Tutorial" },
-            tags: {
-              type: "array",
-              items: { type: "string" },
-              example: ["email", "password", "reset"],
-            },
-            opd_id: { type: "integer", example: 1 },
-          },
-        },
-        UpdateKBRequest: {
-          type: "object",
-          properties: {
-            title: {
-              type: "string",
-              example: "Cara Reset Password Akun Email (Updated)",
-            },
-            content: {
-              type: "string",
-              example: "Konten yang sudah diupdate...",
-            },
-            category: { type: "string", example: "Tutorial" },
-            tags: {
-              type: "array",
-              items: { type: "string" },
-              example: ["email", "password"],
-            },
-          },
-        },
-
-        // ============= ADMIN SCHEMAS =============
-        CreateUserRequest: {
-          type: "object",
-          required: ["username", "password", "email", "full_name", "role"],
-          properties: {
-            username: { type: "string", example: "teknisi.opd1" },
-            password: {
-              type: "string",
-              format: "password",
-              example: "password123",
-            },
-            email: {
-              type: "string",
-              format: "email",
-              example: "teknisi@opd.go.id",
-            },
-            full_name: { type: "string", example: "Ahmad Teknisi" },
-            nip: { type: "string", example: "199001012020011001" },
-            phone: { type: "string", example: "081234567890" },
-            address: { type: "string", example: "Jl. Example No. 123" },
-            role: {
-              type: "string",
-              enum: [
-                "super_admin",
-                "admin_kota",
-                "admin_opd",
-                "bidang",
-                "seksi",
-                "teknisi",
-                "pegawai_opd",
-                "pengguna",
-              ],
-              example: "teknisi",
-            },
-            opd_id: { type: "integer", example: 1 },
-            bidang_id: { type: "integer", example: 1 },
-            seksi_id: { type: "integer", example: 1 },
-          },
-        },
-        UpdateUserRoleRequest: {
-          type: "object",
-          properties: {
-            role: {
-              type: "string",
-              enum: [
-                "super_admin",
-                "admin_kota",
-                "admin_opd",
-                "bidang",
-                "seksi",
-                "teknisi",
-                "pegawai_opd",
-                "pengguna",
-              ],
-            },
-            opd_id: { type: "integer", example: 2 },
-            bidang_id: { type: "integer", example: 2 },
-            seksi_id: { type: "integer", example: 2 },
-            is_active: { type: "boolean", example: true },
-          },
-        },
-        UpdateOpdCalendarRequest: {
-          type: "object",
-          properties: {
-            working_hours: {
-              type: "object",
-              example: {
-                monday: "08:00-16:00",
-                tuesday: "08:00-16:00",
-                wednesday: "08:00-16:00",
-                thursday: "08:00-16:00",
-                friday: "08:00-15:30",
+              service_item: { $ref: "#/components/schemas/ServiceItem" },
+              // Related data
+              attachments: {
+                type: "array",
+                items: { $ref: "#/components/schemas/TicketAttachment" },
+              },
+              progress_updates: {
+                type: "array",
+                items: { $ref: "#/components/schemas/ProgressUpdate" },
+              },
+              comments: {
+                type: "array",
+                items: { $ref: "#/components/schemas/TicketComment" },
+              },
+              logs: {
+                type: "array",
+                items: { $ref: "#/components/schemas/TicketLog" },
+              },
+              approvals: {
+                type: "array",
+                items: { $ref: "#/components/schemas/ApprovalWorkflow" },
               },
             },
-            holidays: {
-              type: "array",
-              items: { type: "string", format: "date" },
-              example: ["2025-12-25", "2026-01-01"],
+          },
+        ],
+      },
+      TicketListResponse: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          ticket_number: { type: "string", example: "INC-2023-1234" },
+          title: { type: "string" },
+          type: { type: "string", enum: ["incident", "request"] },
+          status: {
+            type: "string",
+            enum: [
+              "open",
+              "verified",
+              "assigned",
+              "in_progress",
+              "resolved",
+              "closed",
+              "pending_approval",
+              "rejected",
+              "merged",
+            ],
+          },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "major"],
+          },
+          category: { type: "string" },
+          sla_due: { type: "string", format: "date-time" },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" },
+          // Simplified relations for list view
+          reporter: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              full_name: { type: "string" },
+            },
+          },
+          technician: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              full_name: { type: "string" },
+            },
+          },
+          opd: {
+            type: "object",
+            properties: { id: { type: "integer" }, name: { type: "string" } },
+          },
+        },
+      },
+      TicketAttachment: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          file_name: { type: "string" },
+          file_url: { type: "string" },
+          uploaded_by: { type: "string", format: "uuid" },
+          created_at: { type: "string", format: "date-time" },
+        },
+      },
+      ProgressUpdate: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          update_number: { type: "integer" },
+          status_change: { type: "string" },
+          reason: { type: "string" },
+          problem_detail: { type: "string" },
+          handling_description: { type: "string" },
+          final_solution: { type: "string" },
+          updated_by_user: { $ref: "#/components/schemas/UserResponse" },
+          update_time: { type: "string", format: "date-time" },
+        },
+      },
+      TicketComment: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          content: { type: "string" },
+          is_internal: { type: "boolean" },
+          user: { $ref: "#/components/schemas/UserResponse" },
+          created_at: { type: "string", format: "date-time" },
+        },
+      },
+      TicketLog: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          action: { type: "string" },
+          description: { type: "string" },
+          user: {
+            type: "object",
+            properties: {
+              username: { type: "string" },
+              full_name: { type: "string" },
+            },
+          },
+          created_at: { type: "string", format: "date-time" },
+        },
+      },
+      ApprovalWorkflow: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          workflow_level: { type: "integer" },
+          approver_role: { type: "string" },
+          status: { type: "string", enum: ["pending", "approved", "rejected"] },
+          approver_id: { type: "string", format: "uuid" },
+          notes: { type: "string" },
+          responded_at: { type: "string", format: "date-time" },
+        },
+      },
+
+      // --- ACTIONS (PROGRESS, COMMENT) ---
+      ProgressUpdateInput: {
+        type: "object",
+        required: ["update_number", "status_change"],
+        properties: {
+          update_number: { type: "integer", example: 1 },
+          status_change: {
+            type: "string",
+            example: "Sedang ditangani",
+            description: "Label status yang akan muncul di riwayat",
+          },
+          reason: { type: "string", example: "Sedang dikerjakan teknisi" },
+          problem_detail: { type: "string" },
+          handling_description: {
+            type: "string",
+            example: "Melakukan restart router",
+          },
+          final_solution: {
+            type: "string",
+            description:
+              "Wajib diisi jika status akhir adalah 'Selesai' atau 'Ditutup'",
+          },
+        },
+      },
+      CommentInput: {
+        type: "object",
+        required: ["content"],
+        properties: {
+          content: {
+            type: "string",
+            example: "Mohon update estimasi waktunya.",
+          },
+          is_internal: {
+            type: "boolean",
+            default: false,
+            description:
+              "Jika true, hanya terlihat oleh staff (role selain pengguna)",
+          },
+        },
+      },
+
+      // --- KNOWLEDGE BASE ---
+      ArticleInput: {
+        type: "object",
+        required: ["title", "content"],
+        properties: {
+          title: { type: "string", example: "Cara Mengatasi Printer Error" },
+          content: {
+            type: "string",
+            example: "<p>Langkah 1: Cek kabel...</p>",
+          },
+          category: { type: "string", example: "Hardware" },
+          tags: {
+            type: "array",
+            items: { type: "string" },
+            example: ["printer", "error", "guide"],
+          },
+          opd_id: { type: "integer" },
+        },
+      },
+      KBArticle: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          title: { type: "string" },
+          content: { type: "string" },
+          category: { type: "string" },
+          tags: { type: "array", items: { type: "string" } },
+          view_count: { type: "integer" },
+          status: { type: "string", enum: ["draft", "published"] },
+          author: { $ref: "#/components/schemas/UserResponse" },
+          opd: { $ref: "#/components/schemas/OPDResponse" },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" },
+        },
+      },
+
+      // --- SERVICE CATALOG ---
+      ServiceCatalogResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          count: { type: "integer" },
+          catalogs: {
+            type: "array",
+            items: { $ref: "#/components/schemas/ServiceCatalogItem" },
+          },
+        },
+      },
+      ServiceCatalogItem: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          catalog_name: { type: "string" },
+          description: { type: "string" },
+          opd_id: { type: "integer" },
+          is_active: { type: "boolean" },
+          sub_layanan: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", format: "uuid" },
+                sub_catalog_name: { type: "string" },
+                description: { type: "string" },
+                approval_required: { type: "boolean" },
+                service_items: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/ServiceItem" },
+                },
+              },
             },
           },
         },
-        UpdateTechnicianSkillsRequest: {
-          type: "object",
-          required: ["skills"],
-          properties: {
-            skills: {
-              type: "array",
-              items: {
+      },
+      ServiceItem: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          item_name: { type: "string" },
+        },
+      },
+
+      // --- ADMIN & MASTER DATA ---
+      UserCreateAdmin: {
+        type: "object",
+        required: ["username", "password", "email", "role", "full_name"],
+        properties: {
+          username: { type: "string" },
+          password: { type: "string", format: "password" },
+          email: { type: "string", format: "email" },
+          full_name: { type: "string" },
+          role: {
+            type: "string",
+            enum: [
+              "super_admin",
+              "admin_kota",
+              "admin_opd",
+              "bidang",
+              "seksi",
+              "helpdesk",
+              "teknisi",
+              "pegawai_opd",
+            ],
+          },
+          opd_id: { type: "integer" },
+          bidang_id: { type: "integer" },
+          seksi_id: { type: "integer" },
+          nip: { type: "string" },
+          phone: { type: "string" },
+          address: { type: "string" },
+        },
+      },
+      OPDResponse: {
+        type: "object",
+        properties: {
+          id: { type: "integer" },
+          name: { type: "string" },
+          code: { type: "string" },
+          address: { type: "string" },
+          is_active: { type: "boolean" },
+        },
+      },
+      BidangResponse: {
+        type: "object",
+        properties: {
+          id: { type: "integer" },
+          name: { type: "string" },
+        },
+      },
+      SeksiResponse: {
+        type: "object",
+        properties: {
+          id: { type: "integer" },
+          name: { type: "string" },
+        },
+      },
+      PublicTicketTrackResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          data: {
+            type: "object",
+            properties: {
+              ticket_info: {
                 type: "object",
                 properties: {
-                  name: { type: "string", example: "Network Configuration" },
-                  level: {
-                    type: "string",
-                    enum: ["beginner", "intermediate", "advanced", "expert"],
-                    example: "advanced",
+                  ticket_number: { type: "string" },
+                  title: { type: "string" },
+                  status: { type: "string" },
+                  opd_name: { type: "string" },
+                  reporter_name: { type: "string" },
+                  created_at: { type: "string", format: "date-time" },
+                },
+              },
+              timeline: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    update_time: { type: "string", format: "date-time" },
+                    status_change: { type: "string" },
+                    handling_description: { type: "string" },
                   },
-                  category: { type: "string", example: "Networking" },
                 },
               },
             },
-            expertise_level: {
-              type: "string",
-              enum: ["junior", "middle", "senior"],
-              example: "senior",
-            },
-            certifications: {
-              type: "array",
-              items: { type: "string" },
-              example: ["CCNA", "CompTIA Network+"],
+          },
+        },
+      },
+      SearchResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          query: { type: "string" },
+          results: {
+            type: "object",
+            properties: {
+              tickets: {
+                type: "object",
+                properties: {
+                  data: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/TicketListResponse" },
+                  },
+                  count: { type: "integer" },
+                },
+              },
+              kb: {
+                type: "object",
+                properties: {
+                  data: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/KBArticle" },
+                  },
+                  count: { type: "integer" },
+                },
+              },
             },
           },
         },
-
-        // ============= COMMENT & PROGRESS SCHEMAS =============
-        CreateCommentRequest: {
-          type: "object",
-          required: ["content"],
-          properties: {
+      },
+      SyncResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          message: { type: "string" },
+          results: {
+            type: "object",
+            properties: {
+              tickets: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    local_id: { type: "string" },
+                    server_id: { type: "string", format: "uuid" },
+                    ticket_number: { type: "string" },
+                  },
+                },
+              },
+              progress_updates: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    local_id: { type: "string" },
+                    server_id: { type: "string", format: "uuid" },
+                  },
+                },
+              },
+              errors: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    type: { type: "string" },
+                    local_id: { type: "string" },
+                    error: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      AssetScanResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          action: {
+            type: "string",
+            enum: ["create_ticket", "technician_check_in"],
+          },
+          message: { type: "string" },
+          asset: {
+            type: "object",
+            properties: {
+              id: { type: "string", format: "uuid" },
+              name: { type: "string" },
+              type: { type: "string" },
+              location: { type: "string" },
+              opd: { type: "string" },
+            },
+          },
+        },
+      },
+      AuditLogResponse: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          ticket_id: { type: "string", format: "uuid" },
+          user_id: { type: "string", format: "uuid" },
+          action: { type: "string" },
+          description: { type: "string" },
+          user: { $ref: "#/components/schemas/UserResponse" },
+          ticket: {
+            type: "object",
+            properties: {
+              ticket_number: { type: "string" },
+              title: { type: "string" },
+            },
+          },
+          created_at: { type: "string", format: "date-time" },
+        },
+      },
+    },
+  },
+  paths: {
+    // ==========================================
+    // GENERAL
+    // ==========================================
+    "/": {
+      get: {
+        tags: ["General"],
+        summary: "Check API Status",
+        description:
+          "Endpoint untuk memeriksa apakah API berjalan dengan baik.",
+        responses: {
+          200: {
+            description: "API Berjalan",
             content: {
-              type: "string",
-              example:
-                "Sudah dilakukan pengecekan awal, printer dalam kondisi rusak",
+              "application/json": {
+                schema: {
+                  allOf: [
+                    { $ref: "#/components/schemas/SuccessResponse" },
+                    {
+                      type: "object",
+                      properties: {
+                        message: {
+                          type: "string",
+                          example:
+                            "Welcome to Service Desk API v2.0 (SSO Enabled)",
+                        },
+                        version: { type: "string", example: "2.0.0" },
+                      },
+                    },
+                  ],
+                },
+              },
             },
-            is_internal: {
-              type: "boolean",
-              example: false,
-              description: "true = internal note, false = public comment",
-            },
-          },
-        },
-        CreateProgressIncidentRequest: {
-          type: "object",
-          required: ["update_number", "status_change"],
-          properties: {
-            update_number: { type: "integer", example: 1 },
-            status_change: { type: "string", example: "Ditangani" },
-            reason: {
-              type: "string",
-              example: "Printer rusak karena komponen internal",
-            },
-            problem_detail: {
-              type: "string",
-              example: "Drum printer sudah habis masa pakai",
-            },
-            handling_description: {
-              type: "string",
-              example: "Mengganti drum printer dengan yang baru",
-            },
-            final_solution: {
-              type: "string",
-              example: "Printer sudah bisa digunakan kembali dengan normal",
-            },
-          },
-        },
-        CreateProgressRequestRequest: {
-          type: "object",
-          required: ["update_number", "status_change"],
-          properties: {
-            update_number: { type: "integer", example: 1 },
-            status_change: { type: "string", example: "Dalam Proses" },
-            notes: {
-              type: "string",
-              example: "Email sedang dibuat oleh tim IT",
-            },
-          },
-        },
-
-        // ============= RESPONSE MODELS =============
-        SuccessResponse: {
-          type: "object",
-          properties: {
-            success: { type: "boolean", example: true },
-            message: { type: "string", example: "Operasi berhasil" },
-          },
-        },
-        ErrorResponse: {
-          type: "object",
-          properties: {
-            error: { type: "string", example: "Terjadi kesalahan" },
-          },
-        },
-        PaginationResponse: {
-          type: "object",
-          properties: {
-            page: { type: "integer", example: 1 },
-            limit: { type: "integer", example: 20 },
-            total: { type: "integer", example: 150 },
-            total_pages: { type: "integer", example: 8 },
           },
         },
       },
     },
-    paths: {
-      // ============= 0. ROOT =============
-      "/": {
-        get: {
-          tags: ["0. Root"],
-          summary: "Root endpoint",
-          responses: {
-            200: {
-              description: "Welcome message",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      message: {
-                        type: "string",
-                        example:
-                          "Welcome to Service Desk API v2.0 (SSO Enabled)",
-                      },
-                      version: { type: "string", example: "2.0.0" },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-
-      // ============= 1. PUBLIC ENDPOINTS =============
-      "/public/opd": {
-        get: {
-          tags: ["1. Public Endpoints"],
-          summary: "Mendapatkan daftar OPD (publik)",
-          description:
-            "Endpoint publik untuk mendapatkan daftar OPD yang aktif",
-          responses: {
-            200: {
-              description: "Berhasil",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      data: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            id: { type: "integer", example: 1 },
-                            name: {
-                              type: "string",
-                              example: "Dinas Komunikasi dan Informatika",
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            500: {
-              description: "Server error",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/public/incidents": {
-        post: {
-          tags: ["1. Public Endpoints"],
-          summary: "Buat insiden publik (tanpa login)",
-          description:
-            "Endpoint untuk masyarakat melaporkan insiden tanpa harus login",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/CreateIncidentPublic" },
-              },
-            },
-          },
-          responses: {
-            201: {
-              description: "Insiden berhasil dilaporkan",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      message: {
-                        type: "string",
-                        example: "Insiden berhasil dilaporkan",
-                      },
-                      ticket: { type: "object" },
-                    },
-                  },
-                },
-              },
-            },
-            400: { description: "Validasi gagal" },
-            500: { description: "Server error" },
-          },
-        },
-      },
-      "/public/tickets/{ticket_number}": {
-        get: {
-          tags: ["1. Public Endpoints"],
-          summary: "Tracking tiket publik (tanpa login)",
-          description:
-            "Cek status tiket menggunakan nomor tiket tanpa harus login",
-          parameters: [
-            {
-              name: "ticket_number",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              example: "INC-2025-0001",
-            },
-          ],
-          responses: {
-            200: {
-              description: "Data tiket ditemukan",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      data: {
-                        type: "object",
-                        properties: {
-                          ticket_info: {
-                            type: "object",
-                            properties: {
-                              ticket_number: {
-                                type: "string",
-                                example: "INC-2025-0001",
-                              },
-                              title: {
-                                type: "string",
-                                example: "Lampu jalan mati",
-                              },
-                              description: { type: "string" },
-                              status: {
-                                type: "string",
-                                example: "in_progress",
-                              },
-                              category: {
-                                type: "string",
-                                example: "Fasilitas Publik",
-                              },
-                              opd_name: {
-                                type: "string",
-                                example: "Dinas Pekerjaan Umum",
-                              },
-                              location: {
-                                type: "string",
-                                example: "Jl. Pahlawan No. 45",
-                              },
-                              reporter_name: {
-                                type: "string",
-                                example: "Budi Santoso",
-                              },
-                              created_at: {
-                                type: "string",
-                                format: "date-time",
-                              },
-                              last_updated: {
-                                type: "string",
-                                format: "date-time",
-                              },
-                            },
-                          },
-                          timeline: {
-                            type: "array",
-                            items: {
-                              type: "object",
-                              properties: {
-                                update_time: {
-                                  type: "string",
-                                  format: "date-time",
-                                },
-                                status_change: {
-                                  type: "string",
-                                  example: "Open",
-                                },
-                                handling_description: { type: "string" },
-                              },
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            404: { description: "Tiket tidak ditemukan" },
-            500: { description: "Server error" },
-          },
-        },
-      },
-
-      // ============= 2. AUTHENTICATION =============
-      "/auth/login": {
-        post: {
-          tags: ["2. Authentication"],
-          summary: "Login dengan username & password",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/LoginRequest" },
-              },
-            },
-          },
-          responses: {
-            200: {
-              description: "Login berhasil",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      token: {
-                        type: "string",
-                        example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-                      },
-                      user: {
-                        type: "object",
-                        properties: {
-                          id: { type: "integer", example: 1 },
-                          username: { type: "string", example: "admin.kota" },
-                          full_name: { type: "string", example: "Admin Kota" },
-                          email: {
-                            type: "string",
-                            example: "admin@kota.go.id",
-                          },
-                          role: { type: "string", example: "admin_kota" },
-                          permissions: {
-                            type: "array",
-                            items: { type: "string" },
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            401: { description: "Username atau password salah" },
-          },
-        },
-      },
-      "/auth/sso": {
-        get: {
-          tags: ["2. Authentication"],
-          summary: "Redirect ke SSO Provider",
-          description: "Mendapatkan URL redirect untuk login SSO",
-          parameters: [
-            {
-              name: "provider",
-              in: "query",
-              required: true,
-              schema: { type: "string", enum: ["google", "github", "gitlab"] },
-              example: "google",
-            },
-          ],
-          responses: {
-            200: {
-              description: "URL redirect SSO",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      redirect_url: {
-                        type: "string",
-                        example:
-                          "https://accounts.google.com/o/oauth2/v2/auth?...",
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/auth/callback": {
-        get: {
-          tags: ["2. Authentication"],
-          summary: "SSO Callback (dipanggil oleh provider)",
-          description:
-            "Endpoint callback yang dipanggil oleh SSO provider setelah login berhasil",
-          parameters: [
-            {
-              name: "code",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            302: { description: "Redirect ke frontend dengan token" },
-            500: { description: "Login gagal" },
-          },
-        },
-      },
-      "/auth/register": {
-        post: {
-          tags: ["2. Authentication"],
-          summary: "Registrasi pengguna publik",
-          description:
-            "Endpoint untuk registrasi pengguna baru dengan role 'pengguna'",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/RegisterRequest" },
-              },
-            },
-          },
-          responses: {
-            201: {
-              description: "Registrasi berhasil",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      message: {
-                        type: "string",
-                        example: "Registrasi publik berhasil",
-                      },
-                      user: { type: "object" },
-                    },
-                  },
-                },
-              },
-            },
-            400: { description: "Username atau email sudah digunakan" },
-          },
-        },
-      },
-      "/auth/logout": {
-        post: {
-          tags: ["2. Authentication"],
-          summary: "Logout",
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: {
-              description: "Logout berhasil",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/SuccessResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/auth/me": {
-        get: {
-          tags: ["2. Authentication"],
-          summary: "Get profil user yang sedang login",
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: {
-              description: "Data profil user",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      user: { type: "object" },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        put: {
-          tags: ["2. Authentication"],
-          summary: "Update profil user",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/UpdateProfileRequest" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Profil berhasil diperbarui" },
-          },
-        },
-      },
-      "/auth/forgot-password": {
-        post: {
-          tags: ["2. Authentication"],
-          summary: "Lupa password",
-          requestBody: {
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/ForgotPasswordRequest" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Link reset password telah dikirim" },
-          },
-        },
-      },
-
-      // ============= 3. INCIDENTS =============
-      "/incidents": {
-        post: {
-          tags: ["3. Incidents"],
-          summary: "Buat insiden baru (internal)",
-          description:
-            "Untuk pegawai yang sudah login. Reporter diambil dari token.",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/CreateIncidentInternal" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Incident berhasil dibuat" },
-            400: { description: "Data tidak lengkap" },
-            500: { description: "Server error" },
-          },
-        },
-        get: {
-          tags: ["3. Incidents"],
-          summary: "List insiden (dengan filter & pagination)",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "status",
-              in: "query",
-              schema: { type: "string" },
-              description: "Filter by status",
-            },
-            {
-              name: "priority",
-              in: "query",
-              schema: { type: "string" },
-              description: "Filter by priority",
-            },
-            {
-              name: "search",
-              in: "query",
-              schema: { type: "string" },
-              description: "Search by title/ticket number",
-            },
-            {
-              name: "opd_id",
-              in: "query",
-              schema: { type: "integer" },
-              description: "Filter by OPD",
-            },
-            {
-              name: "verification_status",
-              in: "query",
-              schema: { type: "string" },
-            },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: {
-              description: "List insiden",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      data: { type: "array", items: { type: "object" } },
-                      pagination: {
-                        $ref: "#/components/schemas/PaginationResponse",
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/incidents/{id}": {
-        get: {
-          tags: ["3. Incidents"],
-          summary: "Detail insiden",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          responses: {
-            200: {
-              description:
-                "Detail insiden dengan attachments, progress, comments, dan logs",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      ticket: { type: "object" },
-                      attachments: { type: "array", items: { type: "object" } },
-                      progress_updates: {
-                        type: "array",
-                        items: { type: "object" },
-                      },
-                      comments: { type: "array", items: { type: "object" } },
-                      logs: { type: "array", items: { type: "object" } },
-                    },
-                  },
-                },
-              },
-            },
-            404: { description: "Incident tidak ditemukan" },
-          },
-        },
-        put: {
-          tags: ["3. Incidents"],
-          summary: "Update insiden",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/UpdateIncidentRequest" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Incident berhasil diperbarui" },
-          },
-        },
-      },
-      "/incidents/{id}/classify": {
-        put: {
-          tags: ["3. Incidents"],
-          summary: "Klasifikasi insiden (Urgency & Impact)",
-          description:
-            "Untuk role 'seksi' - mengklasifikasi urgency dan impact, sistem akan menghitung prioritas dan SLA",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/ClassifyIncidentRequest",
-                },
-              },
-            },
-          },
-          responses: {
-            200: {
-              description:
-                "Insiden berhasil diklasifikasi dan prioritas diperbarui",
-            },
-          },
-        },
-      },
-      "/incidents/merge": {
-        post: {
-          tags: ["3. Incidents"],
-          summary: "Merge beberapa insiden menjadi satu",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/MergeIncidentsRequest" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Incidents berhasil di-merge" },
-          },
-        },
-      },
-
-      // ============= 4. SERVICE REQUESTS =============
-      "/catalog": {
-        get: {
-          tags: ["5. Service Catalog"],
-          summary: "List katalog layanan",
-          description:
-            "Mendapatkan katalog dengan struktur: Catalog → Sub Layanan → Service Items",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "opd_id", in: "query", schema: { type: "integer" } },
-            {
-              name: "is_active",
-              in: "query",
-              schema: { type: "string", enum: ["true", "false"] },
-            },
-          ],
-          responses: {
-            200: {
-              description: "List katalog dengan sub layanan",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      count: { type: "integer", example: 5 },
-                      catalogs: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            id: { type: "integer" },
-                            catalog_name: {
-                              type: "string",
-                              example: "Layanan IT",
-                            },
-                            total_items: { type: "integer", example: 10 },
-                            sub_layanan: {
-                              type: "array",
-                              items: {
-                                type: "object",
-                                properties: {
-                                  id: { type: "integer" },
-                                  sub_catalog_name: {
-                                    type: "string",
-                                    example: "Layanan Email",
-                                  },
-                                  description: { type: "string" },
-                                  approval_required: { type: "boolean" },
-                                  service_items: {
-                                    type: "array",
-                                    items: {
-                                      type: "object",
-                                      properties: {
-                                        id: { type: "integer" },
-                                        item_name: {
-                                          type: "string",
-                                          example: "Buat Akun Email Baru",
-                                        },
-                                      },
-                                    },
-                                  },
-                                },
-                              },
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/requests": {
-        post: {
-          tags: ["4. Service Requests"],
-          summary: "Buat service request (internal)",
-          description:
-            "OPD ID diambil dari token, Catalog ID diambil dari Service Item ID",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/CreateRequestInternal" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Service request berhasil dibuat" },
-            400: { description: "Data tidak lengkap" },
-          },
-        },
-        get: {
-          tags: ["4. Service Requests"],
-          summary: "List service requests",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "status", in: "query", schema: { type: "string" } },
-            { name: "search", in: "query", schema: { type: "string" } },
-            { name: "opd_id", in: "query", schema: { type: "integer" } },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: { description: "List service requests" },
-          },
-        },
-      },
-      "/requests/{id}": {
-        get: {
-          tags: ["4. Service Requests"],
-          summary: "Detail service request",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          responses: {
-            200: {
-              description: "Detail request dengan approvals dan progress",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      ticket: { type: "object" },
-                      approvals: { type: "array", items: { type: "object" } },
-                      progress_updates: {
-                        type: "array",
-                        items: { type: "object" },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        put: {
-          tags: ["4. Service Requests"],
-          summary: "Update service request",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
+    "/dashboard": {
+      get: {
+        tags: ["General"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Dashboard Stats",
+        description:
+          "Mengambil data statistik untuk dashboard pengguna. Data yang ditampilkan akan difilter berdasarkan role pengguna (misal: teknisi hanya melihat tiketnya sendiri).",
+        responses: {
+          200: {
+            description: "Berhasil mengambil data dashboard",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
-                    status: { type: "string" },
-                    progress_notes: { type: "string" },
-                  },
-                },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Service request berhasil diperbarui" },
-          },
-        },
-      },
-      "/requests/{id}/approve": {
-        post: {
-          tags: ["4. Service Requests"],
-          summary: "Approve service request",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/ApprovalRequest" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Service request berhasil disetujui" },
-          },
-        },
-      },
-      "/requests/{id}/reject": {
-        post: {
-          tags: ["4. Service Requests"],
-          summary: "Reject service request",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/RejectRequest" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Service request berhasil ditolak" },
-          },
-        },
-      },
-
-      // ============= 6. KNOWLEDGE BASE =============
-      "/kb": {
-        get: {
-          tags: ["6. Knowledge Base"],
-          summary: "List artikel KB",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "category", in: "query", schema: { type: "string" } },
-            { name: "status", in: "query", schema: { type: "string" } },
-            { name: "search", in: "query", schema: { type: "string" } },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: { description: "List artikel KB" },
-          },
-        },
-        post: {
-          tags: ["6. Knowledge Base"],
-          summary: "Buat artikel KB baru",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/CreateKBRequest" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Artikel KB berhasil dibuat (draft)" },
-          },
-        },
-      },
-      "/kb/suggest": {
-        get: {
-          tags: ["6. Knowledge Base"],
-          summary: "Suggest artikel KB",
-          description: "Mendapatkan saran artikel berdasarkan query",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "query",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            200: { description: "Saran artikel KB" },
-          },
-        },
-      },
-      "/kb/{id}": {
-        get: {
-          tags: ["6. Knowledge Base"],
-          summary: "Detail artikel KB",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          responses: {
-            200: { description: "Detail artikel (view count akan bertambah)" },
-            404: { description: "Artikel tidak ditemukan" },
-          },
-        },
-        put: {
-          tags: ["6. Knowledge Base"],
-          summary: "Update artikel KB",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/UpdateKBRequest" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Artikel KB berhasil diperbarui" },
-          },
-        },
-        delete: {
-          tags: ["6. Knowledge Base"],
-          summary: "Hapus artikel KB",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          responses: {
-            200: { description: "Artikel KB berhasil dihapus" },
-          },
-        },
-      },
-
-      // ============= 7. DASHBOARD =============
-      "/dashboard": {
-        get: {
-          tags: ["7. Dashboard"],
-          summary: "Dashboard statistics",
-          description: "Statistik tiket berdasarkan role user",
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: {
-              description: "Dashboard data",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean", example: true },
-                      dashboard: {
-                        type: "object",
-                        properties: {
-                          total_tickets: { type: "integer", example: 150 },
-                          by_status: {
-                            type: "object",
-                            properties: {
-                              open: { type: "integer", example: 25 },
-                              assigned: { type: "integer", example: 30 },
-                              in_progress: { type: "integer", example: 40 },
-                              resolved: { type: "integer", example: 35 },
-                              closed: { type: "integer", example: 20 },
-                            },
-                          },
-                          by_priority: {
-                            type: "object",
-                            properties: {
-                              low: { type: "integer", example: 30 },
-                              medium: { type: "integer", example: 60 },
-                              high: { type: "integer", example: 40 },
-                              major: { type: "integer", example: 20 },
-                            },
-                          },
-                          role: { type: "string", example: "admin_kota" },
-                          scope: { type: "string", example: "All OPD" },
+                    success: { type: "boolean" },
+                    dashboard: {
+                      type: "object",
+                      properties: {
+                        total_tickets: { type: "integer" },
+                        by_status: {
+                          type: "object",
+                          example: { open: 5, resolved: 20 },
                         },
+                        by_priority: {
+                          type: "object",
+                          example: { high: 2, medium: 10 },
+                        },
+                        role: { type: "string" },
+                        scope: { type: "string" },
                       },
                     },
                   },
@@ -1571,538 +816,1883 @@ const swaggerOptions = {
           },
         },
       },
-
-      // ============= 8. SEARCH =============
-      "/search": {
-        get: {
-          tags: ["8. Search"],
-          summary: "Pencarian global",
-          description: "Cari di tickets dan knowledge base",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "q",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-              description: "Query pencarian",
+    },
+    "/search": {
+      get: {
+        tags: ["General"],
+        security: [{ bearerAuth: [] }],
+        summary: "Global Search",
+        description:
+          "Melakukan pencarian global pada tiket (insiden & permintaan) dan artikel basis pengetahuan.",
+        parameters: [
+          {
+            name: "q",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+            description: "Query pencarian",
+          },
+          {
+            name: "type",
+            in: "query",
+            schema: { type: "string", enum: ["tickets", "kb"] },
+            description:
+              "Filter tipe hasil pencarian. Jika kosong, akan mencari di semua.",
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Hasil Pencarian",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SearchResponse" },
+              },
             },
-            {
-              name: "type",
-              in: "query",
-              schema: { type: "string", enum: ["tickets", "kb"] },
-              description: "Tipe pencarian",
-            },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: {
-              description: "Hasil pencarian",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      query: { type: "string" },
-                      results: {
-                        type: "object",
-                        properties: {
-                          tickets: {
-                            type: "object",
-                            properties: {
-                              data: {
-                                type: "array",
-                                items: { type: "object" },
-                              },
-                              count: { type: "integer" },
-                            },
-                          },
-                          kb: {
-                            type: "object",
-                            properties: {
-                              data: {
-                                type: "array",
-                                items: { type: "object" },
-                              },
-                              count: { type: "integer" },
-                            },
-                          },
-                        },
-                      },
-                    },
+          },
+        },
+      },
+    },
+    "/sync": {
+      post: {
+        tags: ["General"],
+        security: [{ bearerAuth: [] }],
+        summary: "Offline Sync (Mobile)",
+        description:
+          "Endpoint untuk sinkronisasi data yang dibuat saat aplikasi mobile dalam mode offline.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  tickets: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/IncidentCreateAuth" },
+                    description: "Array of tickets created offline",
+                  },
+                  progress_updates: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/ProgressUpdateInput" },
+                    description: "Array of updates made offline",
                   },
                 },
               },
             },
           },
         },
+        responses: {
+          200: {
+            description: "Laporan Sinkronisasi",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SyncResponse" },
+              },
+            },
+          },
+        },
       },
+    },
+    "/assets/qr/{qr_code}": {
+      get: {
+        tags: ["General"],
+        security: [{ bearerAuth: [] }],
+        summary: "Scan QR Asset",
+        description:
+          "Memindai QR code pada aset. Aksi yang dihasilkan tergantung pada role pengguna.",
+        parameters: [
+          {
+            name: "qr_code",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Informasi Aset atau Aksi Check-in",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/AssetScanResponse" },
+              },
+            },
+          },
+          404: { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
 
-      // ============= 9. SYNC =============
-      "/sync": {
-        post: {
-          tags: ["9. Sync"],
-          summary: "Sinkronisasi data offline",
-          description: "Untuk mobile app yang bekerja offline",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
+    // ==========================================
+    // 1. AUTHENTICATION
+    // ==========================================
+    "/auth/login": {
+      post: {
+        tags: ["Authentication"],
+        summary: "Login User",
+        description:
+          "Login untuk pengguna yang sudah terdaftar di sistem. Mengembalikan token JWT untuk digunakan pada request selanjutnya.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/LoginRequest" },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Login berhasil",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
-                    tickets: {
+                    success: { type: "boolean" },
+                    token: { type: "string" },
+                    user: { $ref: "#/components/schemas/UserResponse" },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            description: "Username/Password salah",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/auth/register": {
+      post: {
+        tags: ["Authentication"],
+        summary: "Register Public User",
+        description:
+          "Mendaftarkan pengguna baru dengan role 'pengguna'. Akun akan langsung aktif.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/RegisterRequest" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Registrasi berhasil",
+            content: {
+              "application/json": {
+                schema: {
+                  allOf: [
+                    { $ref: "#/components/schemas/SuccessResponse" },
+                    {
+                      type: "object",
+                      properties: {
+                        message: {
+                          type: "string",
+                          example: "Registrasi publik berhasil",
+                        },
+                        user: { $ref: "#/components/schemas/UserResponse" },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          400: {
+            description: "Data tidak valid atau username/email sudah digunakan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/auth/sso": {
+      get: {
+        tags: ["Authentication"],
+        summary: "Get SSO Login URL",
+        description:
+          "Mendapatkan URL redirect untuk login melalui SSO provider (Google, Keycloak, dll). Frontend harus mengarahkan user ke URL ini.",
+        parameters: [
+          {
+            name: "provider",
+            in: "query",
+            required: true,
+            schema: { type: "string", enum: ["google", "keycloak"] },
+          },
+        ],
+        responses: {
+          200: {
+            description: "URL redirect berhasil dibuat",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SSORedirectResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/auth/callback": {
+      get: {
+        tags: ["Authentication"],
+        summary: "SSO Callback Endpoint",
+        description:
+          "Endpoint ini dipanggil oleh SSO provider setelah user berhasil login. Backend akan memproses kode otorisasi dan mengalihkan user kembali ke frontend dengan token.",
+        responses: {
+          302: {
+            description: "Redirect ke frontend",
+            headers: {
+              Location: {
+                description: "URL frontend dengan token parameter",
+                schema: {
+                  type: "string",
+                  example: "http://localhost:3000/auth/success?token=...",
+                },
+              },
+            },
+          },
+          400: {
+            description: "Kode otorisasi tidak ditemukan atau tidak valid",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/auth/logout": {
+      post: {
+        tags: ["Authentication"],
+        security: [{ bearerAuth: [] }],
+        summary: "Logout User",
+        description:
+          "Logout pengguna. Di sisi server, ini hanya menghapus token dari client. Token JWT tidak bisa di-invalidate secara langsung.",
+        responses: {
+          200: {
+            description: "Logout berhasil",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/auth/me": {
+      get: {
+        tags: ["Authentication"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Current User Profile",
+        description:
+          "Mengambil data profil pengguna yang sedang login berdasarkan token.",
+        responses: {
+          200: {
+            description: "Data profil pengguna",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    user: { $ref: "#/components/schemas/UserResponse" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      put: {
+        tags: ["Authentication"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update Current User Profile",
+        description:
+          "Memperbarui data profil pengguna yang sedang login (nama, telepon, alamat).",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  full_name: { type: "string" },
+                  phone: { type: "string" },
+                  address: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Profil berhasil diperbarui",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    user: { $ref: "#/components/schemas/UserResponse" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/auth/forgot-password": {
+      post: {
+        tags: ["Authentication"],
+        summary: "Request Password Reset",
+        description:
+          "Mengirim link reset password ke email pengguna. Untuk keamanan, response akan selalu sukses meskipun email tidak terdaftar.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email"],
+                properties: { email: { type: "string", format: "email" } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description:
+              "Jika email terdaftar, link reset password akan dikirim",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ==========================================
+    // 2. INCIDENTS
+    // ==========================================
+    "/incidents": {
+      get: {
+        tags: ["Incidents"],
+        security: [{ bearerAuth: [] }],
+        summary: "List Incidents (Filtered)",
+        description:
+          "Mengambil daftar tiket insiden. Hasil akan difilter berdasarkan role dan OPD pengguna.",
+        parameters: [
+          {
+            name: "status",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: [
+                "open",
+                "verified",
+                "assigned",
+                "in_progress",
+                "resolved",
+                "closed",
+              ],
+            },
+          },
+          {
+            name: "priority",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["low", "medium", "high", "major"],
+            },
+          },
+          { name: "opd_id", in: "query", schema: { type: "integer" } },
+          {
+            name: "verification_status",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["pending", "verified", "rejected"],
+            },
+          },
+          {
+            name: "search",
+            in: "query",
+            schema: { type: "string" },
+            description: "Cari judul/nomor tiket/deskripsi",
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Daftar insiden",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
                       type: "array",
                       items: {
-                        type: "object",
-                        properties: {
-                          local_id: { type: "string" },
-                          type: { type: "string" },
-                          title: { type: "string" },
-                          description: { type: "string" },
-                        },
+                        $ref: "#/components/schemas/TicketListResponse",
                       },
                     },
-                    progress_updates: {
+                    pagination: { $ref: "#/components/schemas/PaginationInfo" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Incidents"],
+        security: [{ bearerAuth: [] }],
+        summary: "Create Incident (Authenticated)",
+        description:
+          "Membuat laporan insiden baru oleh pengguna yang sudah login (role pegawai_opd atau lebih tinggi).",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/IncidentCreateAuth" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Insiden berhasil dibuat",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    ticket: {
+                      $ref: "#/components/schemas/TicketDetailResponse",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: "Data tidak lengkap",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/incidents/{id}": {
+      get: {
+        tags: ["Incidents"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Incident Detail",
+        description:
+          "Mengambil detail lengkap sebuah tiket insiden beserta riwayat, lampiran, dan komentar.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Detail lengkap insiden",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    ticket: {
+                      $ref: "#/components/schemas/TicketDetailResponse",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: "Tiket tidak ditemukan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          403: {
+            description: "Akses ditolak",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+      put: {
+        tags: ["Incidents"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update Incident",
+        description:
+          "Memperbarui data insiden seperti judul, deskripsi, kategori, atau status.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  description: { type: "string" },
+                  category: { type: "string" },
+                  status: {
+                    type: "string",
+                    enum: ["open", "in_progress", "resolved", "closed"],
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Insiden berhasil diperbarui",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/incidents/{id}/classify": {
+      put: {
+        tags: ["Incidents"],
+        security: [{ bearerAuth: [] }],
+        summary: "Classify Incident (Set Priority)",
+        description:
+          "Digunakan oleh staff (seksi/bidang) untuk menentukan urgensi dan dampak. Sistem akan otomatis menghitung ulang prioritas dan SLA.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["urgency", "impact"],
+                properties: {
+                  urgency: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 5,
+                    example: 3,
+                  },
+                  impact: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 5,
+                    example: 3,
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Insiden berhasil diklasifikasi",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    ticket: {
+                      $ref: "#/components/schemas/TicketDetailResponse",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/incidents/{id}/progress": {
+      post: {
+        tags: ["Incidents"],
+        security: [{ bearerAuth: [] }],
+        summary: "Add Progress Update",
+        description:
+          "Menambahkan pembaruan progress pada tiket, biasanya dilakukan oleh teknisi atau penanggung jawab.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ProgressUpdateInput" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Progress berhasil ditambahkan",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    progress_update: {
+                      $ref: "#/components/schemas/ProgressUpdate",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/incidents/{id}/comments": {
+      post: {
+        tags: ["Incidents"],
+        security: [{ bearerAuth: [] }],
+        summary: "Add Comment to Incident",
+        description:
+          "Menambahkan komentar pada tiket insiden. Bisa komentar publik atau internal (staff only).",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CommentInput" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Komentar berhasil ditambahkan",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    comment: { $ref: "#/components/schemas/TicketComment" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/incidents/merge": {
+      post: {
+        tags: ["Incidents"],
+        security: [{ bearerAuth: [] }],
+        summary: "Merge Incidents",
+        description:
+          "Menggabungkan beberapa tiket insiden (duplikat) menjadi satu tiket target.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["source_ticket_ids", "target_ticket_id", "reason"],
+                properties: {
+                  source_ticket_ids: {
+                    type: "array",
+                    items: { type: "string", format: "uuid" },
+                  },
+                  target_ticket_id: { type: "string", format: "uuid" },
+                  reason: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Insiden berhasil digabungkan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ==========================================
+    // 3. PUBLIC ENDPOINTS (NO AUTH)
+    // ==========================================
+    "/public/incidents": {
+      post: {
+        tags: ["Public"],
+        summary: "Report Incident (No Login)",
+        description:
+          "Endpoint untuk publik (masyarakat umum) untuk melaporkan insiden tanpa perlu login.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/IncidentCreatePublic" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Laporan insiden berhasil diterima",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    ticket: { $ref: "#/components/schemas/TicketListResponse" },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: "Data laporan tidak lengkap",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/public/opd": {
+      get: {
+        tags: ["Public"],
+        summary: "Get OPD List",
+        description:
+          "Mengambil daftar OPD yang aktif. Digunakan untuk dropdown saat pelaporan publik.",
+        responses: {
+          200: {
+            description: "Daftar OPD",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/OPDResponse" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/public/tickets/{ticket_number}": {
+      get: {
+        tags: ["Public"],
+        summary: "Track Ticket Status",
+        description:
+          "Melacak status tiket (baik insiden maupun permintaan) menggunakan nomor tiket. Tidak memerlukan login.",
+        parameters: [
+          {
+            name: "ticket_number",
+            in: "path",
+            required: true,
+            schema: { type: "string", example: "INC-2023-0001" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Informasi pelacakan tiket",
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/PublicTicketTrackResponse",
+                },
+              },
+            },
+          },
+          404: {
+            description: "Tiket tidak ditemukan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ==========================================
+    // 4. REQUESTS (LAYANAN)
+    // ==========================================
+    "/catalog": {
+      get: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Service Catalog",
+        description:
+          "Mengambil katalog layanan yang tersedia, lengkap dengan sub-layanan dan item layanan.",
+        parameters: [
+          {
+            name: "opd_id",
+            in: "query",
+            schema: { type: "integer" },
+            description: "Filter katalog berdasarkan OPD",
+          },
+          {
+            name: "is_active",
+            in: "query",
+            schema: { type: "boolean" },
+            description: "Filter katalog aktif/non-aktif",
+          },
+        ],
+        responses: {
+          200: {
+            description: "Struktur katalog layanan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ServiceCatalogResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/requests": {
+      get: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "List Service Requests",
+        description:
+          "Mengambil daftar permintaan layanan. Hasil difilter berdasarkan role dan OPD pengguna.",
+        parameters: [
+          {
+            name: "status",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: [
+                "pending_approval",
+                "open",
+                "in_progress",
+                "resolved",
+                "rejected",
+              ],
+            },
+          },
+          { name: "search", in: "query", schema: { type: "string" } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Daftar permintaan layanan",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
                       type: "array",
                       items: {
-                        type: "object",
-                        properties: {
-                          local_id: { type: "string" },
-                          ticket_id: { type: "integer" },
-                          update_number: { type: "integer" },
-                        },
+                        $ref: "#/components/schemas/TicketListResponse",
                       },
+                    },
+                    pagination: { $ref: "#/components/schemas/PaginationInfo" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Create Service Request",
+        description:
+          "Membuat permintaan layanan baru. Jika layanan memerlukan approval, status awal akan 'pending_approval'.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/RequestCreate" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Permintaan layanan berhasil dibuat",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    ticket: {
+                      $ref: "#/components/schemas/TicketDetailResponse",
                     },
                   },
                 },
               },
             },
           },
-          responses: {
-            200: {
-              description: "Sinkronisasi selesai",
-              content: {
-                "application/json": {
-                  schema: {
+          400: {
+            description: "Data tidak lengkap atau item layanan tidak ditemukan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/requests/{id}": {
+      get: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Request Detail",
+        description:
+          "Mengambil detail permintaan layanan beserta alur approval dan riwayatnya.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Detail permintaan layanan",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    ticket: {
+                      $ref: "#/components/schemas/TicketDetailResponse",
+                    },
+                    approvals: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/ApprovalWorkflow" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: "Tiket tidak ditemukan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    // ... (kode sebelumnya tetap sama) ...
+    "/requests/{id}/approve": {
+      post: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Approve Request",
+        description:
+          "Menyetujui permintaan layanan. Endpoint ini hanya bisa diakses oleh role yang sesuai dengan alur approval.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  notes: {
+                    type: "string",
+                    description: "Catatan opsional saat menyetujui",
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Permintaan berhasil disetujui",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: {
+                      type: "string",
+                      example: "Service request berhasil disetujui",
+                    },
+                    all_approved: {
+                      type: "boolean",
+                      description:
+                        "True jika semua level approval sudah selesai",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          403: {
+            description: "Anda tidak berhak menyetujui permintaan ini",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          404: {
+            description: "Permintaan atau alur approval tidak ditemukan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/requests/{id}/reject": {
+      post: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Reject Request",
+        description:
+          "Menolak permintaan layanan. Permintaan akan ditutup secara otomatis.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["notes"],
+                properties: {
+                  notes: {
+                    type: "string",
+                    description: "Alasan penolakan wajib diisi",
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Permintaan berhasil ditolak",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+          400: {
+            description: "Alasan penolakan harus diisi",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          403: {
+            description: "Anda tidak berhak menolak permintaan ini",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/requests/{id}/progress": {
+      post: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Add Progress Update",
+        description:
+          "Menambahkan pembaruan progress pada tiket permintaan layanan.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ProgressUpdateInput" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Progress berhasil ditambahkan",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    progress_update: {
+                      $ref: "#/components/schemas/ProgressUpdate",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/requests/{id}/comments": {
+      post: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Add Comment to Request",
+        description: "Menambahkan komentar pada tiket permintaan layanan.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CommentInput" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Komentar berhasil ditambahkan",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    comment: { $ref: "#/components/schemas/TicketComment" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ==========================================
+    // 5. KNOWLEDGE BASE
+    // ==========================================
+    "/kb": {
+      get: {
+        tags: ["Knowledge Base"],
+        security: [{ bearerAuth: [] }],
+        summary: "List Articles",
+        description:
+          "Mengambil daftar artikel basis pengetahuan. Secara default hanya menampilkan artikel yang sudah dipublikasi.",
+        parameters: [
+          {
+            name: "search",
+            in: "query",
+            schema: { type: "string" },
+            description: "Pencarian di judul dan konten",
+          },
+          { name: "category", in: "query", schema: { type: "string" } },
+          {
+            name: "status",
+            in: "query",
+            schema: { type: "string", enum: ["draft", "published"] },
+            description: "Jika kosong, default 'published'",
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Daftar artikel KB",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/KBArticle" },
+                    },
+                    pagination: { $ref: "#/components/schemas/PaginationInfo" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Knowledge Base"],
+        security: [{ bearerAuth: [] }],
+        summary: "Create Article",
+        description:
+          "Membuat artikel baru. Artikel baru akan memiliki status 'draft'.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ArticleInput" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Artikel berhasil dibuat (draft)",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    article: { $ref: "#/components/schemas/KBArticle" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/kb/suggest": {
+      get: {
+        tags: ["Knowledge Base"],
+        security: [{ bearerAuth: [] }],
+        summary: "Suggest Articles",
+        description:
+          "Memberikan saran artikel yang relevan berdasarkan query. Digunakan untuk fitur auto-complete.",
+        parameters: [
+          {
+            name: "query",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Daftar saran artikel",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    count: { type: "integer" },
+                    suggestions: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/KBArticle" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/kb/{id}": {
+      get: {
+        tags: ["Knowledge Base"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Article Detail",
+        description:
+          "Mengambil detail dan konten lengkap sebuah artikel. Jumlah view akan bertambah.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Detail artikel",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    article: { $ref: "#/components/schemas/KBArticle" },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: "Artikel tidak ditemukan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+      put: {
+        tags: ["Knowledge Base"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update Article",
+        description: "Memperbarui data artikel (judul, konten, kategori, dll).",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  content: { type: "string" },
+                  category: { type: "string" },
+                  tags: { type: "array", items: { type: "string" } },
+                  status: { type: "string", enum: ["draft", "published"] },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Artikel berhasil diperbarui",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+      delete: {
+        tags: ["Knowledge Base"],
+        security: [{ bearerAuth: [] }],
+        summary: "Delete Article",
+        description: "Menghapus artikel secara permanen.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Artikel berhasil dihapus",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+          403: {
+            description: "Anda tidak memiliki izin menghapus artikel",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ==========================================
+    // 6. ADMIN OPERATIONS
+    // ==========================================
+    "/admin/users": {
+      get: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "List Users",
+        description:
+          "Mengambil daftar semua pengguna sistem, dengan filter role dan OPD.",
+        parameters: [
+          {
+            name: "role",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: [
+                "super_admin",
+                "admin_kota",
+                "admin_opd",
+                "bidang",
+                "seksi",
+                "helpdesk",
+                "teknisi",
+                "pegawai_opd",
+                "pengguna",
+              ],
+            },
+          },
+          { name: "opd_id", in: "query", schema: { type: "integer" } },
+          { name: "is_active", in: "query", schema: { type: "boolean" } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Daftar pengguna",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/UserResponse" },
+                    },
+                    pagination: { $ref: "#/components/schemas/PaginationInfo" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Create User (Admin)",
+        description:
+          "Membuat pengguna baru oleh admin. Role dan OPD dapat ditentukan.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/UserCreateAdmin" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Pengguna berhasil dibuat",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    user: { $ref: "#/components/schemas/UserResponse" },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: "Data tidak valid atau role tidak ada",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/admin/users/{id}/role": {
+      put: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update User Role/OPD",
+        description:
+          "Memperbarui role, OPD, bidang, atau seksi seorang pengguna.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  role: { type: "string" },
+                  opd_id: { type: "integer" },
+                  bidang_id: { type: "integer" },
+                  seksi_id: { type: "integer" },
+                  is_active: { type: "boolean" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Role pengguna berhasil diperbarui",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/admin/opd": {
+      get: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "List OPD",
+        description:
+          "Mengambil daftar semua OPD (Organisasi Perangkat Daerah).",
+        parameters: [
+          { name: "is_active", in: "query", schema: { type: "boolean" } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Daftar OPD",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/OPDResponse" },
+                    },
+                    pagination: { $ref: "#/components/schemas/PaginationInfo" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/admin/opd/{id}/calendar": {
+      put: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update OPD Calendar",
+        description:
+          "Memperbarui jam kerja dan daftar hari libur untuk perhitungan SLA.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  working_hours: {
                     type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      message: { type: "string" },
-                      results: {
-                        type: "object",
-                        properties: {
-                          tickets: { type: "array", items: { type: "object" } },
-                          progress_updates: {
-                            type: "array",
-                            items: { type: "object" },
-                          },
-                          errors: { type: "array", items: { type: "object" } },
+                    description: "JSON object untuk jam kerja",
+                  },
+                  holidays: {
+                    type: "array",
+                    items: { type: "string", format: "date" },
+                    description: "Array tanggal hari libur",
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Kalender OPD berhasil diperbarui",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/admin/technicians/{id}/skills": {
+      put: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update Technician Skills",
+        description: "Memperbarui daftar keahlian (skills) seorang teknisi.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  skills: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        level: {
+                          type: "string",
+                          enum: ["beginner", "intermediate", "expert"],
                         },
+                        category: { type: "string" },
                       },
                     },
+                  },
+                  expertise_level: { type: "string" },
+                  certifications: { type: "array", items: { type: "string" } },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Skills teknisi berhasil diperbarui",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/admin/audit-logs": {
+      get: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Audit Logs",
+        description:
+          "Mengambil log audit aktivitas yang terjadi di dalam sistem.",
+        parameters: [
+          {
+            name: "user_id",
+            in: "query",
+            schema: { type: "string", format: "uuid" },
+          },
+          { name: "action", in: "query", schema: { type: "string" } },
+          {
+            name: "date_from",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "date_to",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 100 },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Daftar log audit",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/AuditLogResponse" },
+                    },
+                    pagination: { $ref: "#/components/schemas/PaginationInfo" },
                   },
                 },
               },
             },
-          },
-        },
-      },
-
-      // ============= 10. ADMIN - USERS =============
-      "/admin/users": {
-        get: {
-          tags: ["10. Admin - Users"],
-          summary: "List users",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "role", in: "query", schema: { type: "string" } },
-            { name: "opd_id", in: "query", schema: { type: "integer" } },
-            {
-              name: "is_active",
-              in: "query",
-              schema: { type: "string", enum: ["true", "false"] },
-            },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: { description: "List users" },
-          },
-        },
-        post: {
-          tags: ["10. Admin - Users"],
-          summary: "Buat user baru (untuk admin)",
-          description: "Hanya admin yang bisa membuat user pegawai",
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/CreateUserRequest" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Akun pegawai berhasil dibuat" },
-            400: { description: "Username atau email sudah digunakan" },
-          },
-        },
-      },
-      "/admin/users/{id}/role": {
-        put: {
-          tags: ["10. Admin - Users"],
-          summary: "Update role user",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/UpdateUserRoleRequest" },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Role user berhasil diperbarui" },
-          },
-        },
-      },
-
-      // ============= 11. ADMIN - OPD =============
-      "/admin/opd": {
-        get: {
-          tags: ["11. Admin - OPD"],
-          summary: "List OPD",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "is_active",
-              in: "query",
-              schema: { type: "string", enum: ["true", "false"] },
-            },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 20 },
-            },
-          ],
-          responses: {
-            200: { description: "List OPD" },
-          },
-        },
-      },
-      "/admin/opd/{id}/calendar": {
-        put: {
-          tags: ["11. Admin - OPD"],
-          summary: "Update kalender OPD",
-          description: "Update jam kerja dan hari libur OPD",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/UpdateOpdCalendarRequest",
-                },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Kalender OPD berhasil diperbarui" },
-          },
-        },
-      },
-
-      // ============= 12. ADMIN - TECHNICIANS =============
-      "/admin/technicians/{id}/skills": {
-        put: {
-          tags: ["12. Admin - Technicians"],
-          summary: "Update skills teknisi",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/UpdateTechnicianSkillsRequest",
-                },
-              },
-            },
-          },
-          responses: {
-            200: { description: "Skills teknisi berhasil diperbarui" },
-          },
-        },
-      },
-
-      // ============= 13. ASSETS & QR =============
-      "/assets/qr/{qr_code}": {
-        get: {
-          tags: ["13. Assets & QR"],
-          summary: "Scan QR Code asset",
-          description: "Untuk pengguna: info asset. Untuk teknisi: check-in",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "qr_code",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              example: "QR-ASSET-001",
-            },
-          ],
-          responses: {
-            200: {
-              description: "Info asset",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      action: {
-                        type: "string",
-                        enum: ["create_ticket", "technician_check_in"],
-                      },
-                      message: { type: "string" },
-                      asset: { type: "object" },
-                    },
-                  },
-                },
-              },
-            },
-            404: { description: "Asset tidak ditemukan" },
-          },
-        },
-      },
-
-      // ============= 14. COMMENTS =============
-      "/incidents/{id}/comments": {
-        post: {
-          tags: ["14. Comments"],
-          summary: "Tambah komentar pada insiden",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/CreateCommentRequest" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Komentar berhasil ditambahkan" },
-          },
-        },
-      },
-      "/requests/{id}/comments": {
-        post: {
-          tags: ["14. Comments"],
-          summary: "Tambah komentar pada request",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/CreateCommentRequest" },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Komentar berhasil ditambahkan" },
-          },
-        },
-      },
-
-      // ============= 15. PROGRESS UPDATES =============
-      "/incidents/{id}/progress": {
-        post: {
-          tags: ["15. Progress Updates"],
-          summary: "Tambah progress update untuk insiden",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/CreateProgressIncidentRequest",
-                },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Progress update berhasil ditambahkan" },
-          },
-        },
-      },
-      "/requests/{id}/progress": {
-        post: {
-          tags: ["15. Progress Updates"],
-          summary: "Tambah progress update untuk request",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "integer" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/CreateProgressRequestRequest",
-                },
-              },
-            },
-          },
-          responses: {
-            201: { description: "Progress update berhasil ditambahkan" },
-          },
-        },
-      },
-
-      // ============= 16. AUDIT LOGS =============
-      "/admin/audit-logs": {
-        get: {
-          tags: ["16. Audit Logs"],
-          summary: "List audit logs",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "user_id", in: "query", schema: { type: "integer" } },
-            { name: "action", in: "query", schema: { type: "string" } },
-            {
-              name: "date_from",
-              in: "query",
-              schema: { type: "string", format: "date" },
-            },
-            {
-              name: "date_to",
-              in: "query",
-              schema: { type: "string", format: "date" },
-            },
-            {
-              name: "page",
-              in: "query",
-              schema: { type: "integer", default: 1 },
-            },
-            {
-              name: "limit",
-              in: "query",
-              schema: { type: "integer", default: 100 },
-            },
-          ],
-          responses: {
-            200: { description: "List audit logs" },
           },
         },
       },
     },
   },
+};
+
+const options = {
+  definition: swaggerDefinition,
   apis: [],
 };
 
-// ===========================================
-// EKSPOR
-// ===========================================
-const swaggerDocs = swaggerJsDoc(swaggerOptions);
+const swaggerDocs = swaggerJsdoc(options);
 
 const swaggerUiOptions = {
-  customCss: `
-    .swagger-ui .topbar { display: none }
-    .swagger-ui .info { margin: 30px 0; }
-    .swagger-ui .info .title { color: #007bff; font-weight: bold; }
-    .swagger-ui .opblock-tag { 
-      background-color: #f8f9fa; 
-      border-left: 4px solid #007bff;
-      font-weight: 600;
-    }
-    .swagger-ui .btn.authorize { 
-      background-color: #007bff; 
-      border-color: #007bff; 
-    }
-    .swagger-ui .btn.authorize svg { fill: #fff; }
-    .swagger-ui .opblock.opblock-post { border-color: #49cc90; background: rgba(73, 204, 144, 0.1); }
-    .swagger-ui .opblock.opblock-get { border-color: #61affe; background: rgba(97, 175, 254, 0.1); }
-    .swagger-ui .opblock.opblock-put { border-color: #fca130; background: rgba(252, 161, 48, 0.1); }
-    .swagger-ui .opblock.opblock-delete { border-color: #f93e3e; background: rgba(249, 62, 62, 0.1); }
-  `,
-  customSiteTitle: "Siladan API Documentation v2.0",
-  customfavIcon: "https://www.svgrepo.com/show/354202/postman-icon.svg",
+  explorer: true,
+  customSiteTitle: "Service Desk API Docs",
 };
 
-module.exports = {
-  swaggerDocs,
-  swaggerUiOptions,
-};
+module.exports = { swaggerDocs, swaggerUiOptions };
