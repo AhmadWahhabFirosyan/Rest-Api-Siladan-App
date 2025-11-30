@@ -12,19 +12,21 @@ const swaggerUi = require("swagger-ui-express");
 const { swaggerDocs, swaggerUiOptions } = require("./swagger.js");
 require("dotenv").config();
 
+// Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
 
+// Root endpoint
 app.get("/api/v1", (req, res) => {
   res.json({
     success: true,
-    message: "Welcome to the jungle Everyone",
-    version: "1.0.0",
+    message: "Welcome to Service Desk API",
+    version: "2.0.0",
   });
 });
 
-// Swagger UI
+// Swagger UI setup
 app.use(
   "/api-docs",
   swaggerUi.serve,
@@ -32,23 +34,14 @@ app.use(
 );
 
 // ===========================================
-// 2. SUPABASE CONNECTION (DUAL CLIENT)
+// 2. DATABASE CONNECTION
 // ===========================================
-// CLIENT 1: DATABASE LOKAL (Service Desk)
 const supabase = createClient(
   process.env.DB_SUPABASE_URL,
   process.env.DB_SUPABASE_KEY
 );
 
-const supabaseDB = supabase;
-
-// CLIENT 2: SSO PUSAT (Identity Provider)
-const supabaseSSO = createClient(
-  process.env.SSO_SUPABASE_URL,
-  process.env.SSO_SUPABASE_KEY
-);
-
-// Test connection
+// Test database connection
 (async () => {
   try {
     const { error } = await supabase.from("users").select("count").limit(1);
@@ -66,10 +59,11 @@ const supabaseSSO = createClient(
 app.use(cors());
 app.use(express.json());
 
+// API v1 router
 const v1Router = express.Router();
 app.use("/api/v1", v1Router);
 
-// Root Endpoint
+// Root API v1 endpoint
 v1Router.get("/", (req, res) => {
   res.json({
     success: true,
@@ -163,9 +157,51 @@ const RBAC_ROLES = {
 };
 
 // ===========================================
-// 5. HELPER FUNCTIONS
+// 5. AUTHENTICATION & AUTHORIZATION MIDDLEWARE
 // ===========================================
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
 
+  if (!token) {
+    return res.status(401).json({ error: "Token tidak ditemukan" });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: "Token tidak valid" });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+const authorize = (permission) => {
+  return (req, res, next) => {
+    const userRole = req.user.role;
+    const roleConfig = RBAC_ROLES[userRole];
+
+    if (!roleConfig) {
+      return res.status(403).json({ error: "Role tidak valid" });
+    }
+
+    if (
+      roleConfig.permissions.includes("*") ||
+      roleConfig.permissions.includes(permission) ||
+      roleConfig.permissions.some(
+        (p) => p.endsWith(".*") && permission.startsWith(p.replace(".*", ""))
+      )
+    ) {
+      next();
+    } else {
+      return res.status(403).json({ error: "Permission tidak cukup" });
+    }
+  };
+};
+
+// ===========================================
+// 6. HELPER FUNCTIONS
+// ===========================================
 const calculatePriority = (urgency, impact) => {
   const score = urgency * impact;
   let category;
@@ -185,7 +221,6 @@ const generateTicketNumber = (type) => {
   return `${prefix}-${year}-${random}`;
 };
 
-// --- KODE PERBAIKAN ---
 const calculateSLADue = async (priority, opdId, startTime) => {
   try {
     const { data: sla } = await supabase
@@ -195,12 +230,10 @@ const calculateSLADue = async (priority, opdId, startTime) => {
       .eq("priority", priority)
       .single();
 
-    // PERBAIKAN: Cek jika sla null ATAU jika resolution_time-nya null
     if (!sla || !sla.resolution_time) {
       console.warn(
         `PERINGATAN: Konfigurasi SLA tidak ditemukan untuk opd_id: ${opdId}, priority: ${priority}. Menggunakan default null.`
       );
-      // Selalu kembalikan OBJEK, bukan 'null', agar ...spread tidak error
       return {
         sla_due: null,
         sla_target_date: null,
@@ -218,7 +251,6 @@ const calculateSLADue = async (priority, opdId, startTime) => {
     };
   } catch (error) {
     console.error("Error calculating SLA:", error);
-    // Selalu kembalikan OBJEK jika terjadi error
     return {
       sla_due: null,
       sla_target_date: null,
@@ -269,152 +301,11 @@ const sendNotification = async (
   }
 };
 
-// ==========================================
-// 7. ROUTES: AUTHENTICATION & SSO (SESUAI FRONTEND)
-// ==========================================
-
-// 1. FRONTEND MINTA URL LOGIN (/auth/sso)
-v1Router.get("/auth/sso", async (req, res) => {
-  const { provider } = req.query; // google, keycloak
-  if (!provider) return res.status(400).json({ error: "Provider harus diisi" });
-
-  // Backend bikin URL redirect ke Supabase
-  const { data, error } = await supabaseSSO.auth.signInWithOAuth({
-    provider: provider,
-    options: {
-      // Supabase akan melempar balik ke Backend kita dulu
-      redirectTo: `http://localhost:${PORT}/api/v1/auth/callback`,
-    },
-  });
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  // Kirim URL ini ke Frontend, biar Frontend yang buka window.location
-  res.json({ success: true, redirect_url: data.url });
-});
-
-// 2. CALLBACK DARI SUPABASE (/auth/callback)
-// Ini endpoint 'Money Changer' tadi. User otomatis dilempar kesini oleh Google.
-v1Router.get("/auth/callback", async (req, res) => {
-  try {
-    // Tangkap 'code' dari URL (Ini mata uang asingnya)
-    const { code } = req.query;
-
-    if (!code) {
-      // PERINGATAN: Jika url browser ada '#' (pagar), backend tidak bisa bacanya.
-      // Pastikan settingan Supabase tidak pakai 'Implicit Flow' tapi 'PKCE'.
-      return res.status(400).json({ error: "Kode otorisasi tidak ditemukan." });
-    }
-
-    // A. Tukar Code -> Session Data User (Validasi ke Pusat)
-    const { data: sessionData, error: sessionError } =
-      await supabaseSSO.auth.exchangeCodeForSession(code);
-
-    if (sessionError) throw sessionError;
-
-    const ssoUser = sessionData.user;
-
-    // B. Cari User di Database Lokal kita
-    let { data: localUser } = await supabaseDB
-      .from("users")
-      .select("*")
-      .eq("email", ssoUser.email)
-      .single();
-
-    // C. Kalau belum ada, daftarkan otomatis (Auto-Register)
-    if (!localUser) {
-      const { data: newUser, error: createError } = await supabaseDB
-        .from("users")
-        .insert({
-          username: ssoUser.email.split("@")[0],
-          email: ssoUser.email,
-          full_name: ssoUser.user_metadata?.full_name || "Pengguna Baru",
-          password: await bcrypt.hash(
-            crypto.randomBytes(16).toString("hex"),
-            10
-          ), // Password acak
-          role: "pengguna", // Role default aman
-          sso_id: ssoUser.id,
-          is_active: true,
-        })
-        .select()
-        .single();
-
-      if (createError) throw createError;
-      localUser = newUser;
-    }
-
-    // D. CETAK TOKEN LOKAL (Mata Uang Kita)
-    // Ini token yang berisi ROLE dan OPD_ID aplikasi kita
-    const tokenLokal = jwt.sign(
-      {
-        id: localUser.id,
-        role: localUser.role,
-        opd_id: localUser.opd_id,
-        sso_uid: ssoUser.id,
-      },
-      JWT_SECRET,
-      { expiresIn: "24h" }
-    );
-
-    // E. Redirect User kembali ke Halaman Frontend
-    // sambil membawa Token Lokal di URL
-    res.redirect(`http://localhost:3000/auth/success?token=${tokenLokal}`);
-  } catch (error) {
-    console.error("SSO Callback Error:", error);
-    // Redirect ke halaman error frontend
-    res.redirect(
-      `http://localhost:3000/login?error=${encodeURIComponent(error.message)}`
-    );
-  }
-});
 // ===========================================
-// 6. MIDDLEWARE AUTHENTICATION & AUTHORIZATION
+// 7. AUTHENTICATION ROUTES
 // ===========================================
 
-const authenticate = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-
-  if (!token) {
-    return res.status(401).json({ error: "Token tidak ditemukan" });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: "Token tidak valid" });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-const authorize = (permission) => {
-  return (req, res, next) => {
-    const userRole = req.user.role;
-    const roleConfig = RBAC_ROLES[userRole];
-
-    if (!roleConfig) {
-      return res.status(403).json({ error: "Role tidak valid" });
-    }
-
-    if (
-      roleConfig.permissions.includes("*") ||
-      roleConfig.permissions.includes(permission) ||
-      roleConfig.permissions.some(
-        (p) => p.endsWith(".*") && permission.startsWith(p.replace(".*", ""))
-      )
-    ) {
-      next();
-    } else {
-      return res.status(403).json({ error: "Permission tidak cukup" });
-    }
-  };
-};
-
-// ==========================================
-// 7.1. AUTHENTICATION & PROFILE (/auth)
-// ==========================================
+// Regular Login
 v1Router.post("/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -479,22 +370,12 @@ v1Router.post("/auth/login", async (req, res) => {
   }
 });
 
-// ==========================================
-// 7.1. AUTHENTICATION & PROFILE (/auth)
-// ==========================================
+// Register
 v1Router.post("/auth/register", async (req, res) => {
   try {
-    // Ambil HANYA data yang diizinkan untuk registrasi publik
-    const {
-      username,
-      password,
-      email,
-      full_name,
-      nip, // Asumsi ini NIK untuk publik, atau NIP jika pegawai
-      phone,
-      address,
-    } = req.body;
-    // Validasi data wajib
+    const { username, password, email, full_name, nip, phone, address } =
+      req.body;
+
     if (!username || !password || !email || !full_name) {
       return res.status(400).json({
         error: "Username, password, email, dan nama lengkap harus diisi",
@@ -513,11 +394,11 @@ v1Router.post("/auth/register", async (req, res) => {
         nip,
         phone,
         address,
-        role: "pengguna", // <--- PERBAIKAN: Hardcode role sebagai 'pengguna'
-        opd_id: null, // <--- PERBAIKAN: Hardcode opd_id sebagai null
-        bidang_id: null, // <--- PERBAIKAN: Hardcode
-        seksi_id: null, // <--- PERBAIKAN: Hardcode
-        is_active: true, // <--- PERBAIKAN: Akun publik bisa langsung aktif
+        role: "pengguna",
+        opd_id: null,
+        bidang_id: null,
+        seksi_id: null,
+        is_active: true,
       })
       .select()
       .single();
@@ -531,12 +412,11 @@ v1Router.post("/auth/register", async (req, res) => {
       throw error;
     }
 
-    // Hapus password dari respons
     delete data.password;
 
     res.status(201).json({
       success: true,
-      message: "Registrasi publik berhasil",
+      message: "Registrasi berhasil",
       user: data,
     });
   } catch (error) {
@@ -545,10 +425,12 @@ v1Router.post("/auth/register", async (req, res) => {
   }
 });
 
+// Logout
 v1Router.post("/auth/logout", authenticate, async (req, res) => {
   res.json({ success: true, message: "Logout berhasil" });
 });
 
+// Get Profile
 v1Router.get("/auth/me", authenticate, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -574,6 +456,7 @@ v1Router.get("/auth/me", authenticate, async (req, res) => {
   }
 });
 
+// Update Profile
 v1Router.put("/auth/me", authenticate, async (req, res) => {
   try {
     const { full_name, phone, address } = req.body;
@@ -603,6 +486,7 @@ v1Router.put("/auth/me", authenticate, async (req, res) => {
   }
 });
 
+// Forgot Password
 v1Router.post("/auth/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -624,7 +508,6 @@ v1Router.post("/auth/forgot-password", async (req, res) => {
       });
     }
 
-    // Generate reset token
     const resetToken = crypto.randomBytes(32).toString("hex");
     const hashedToken = crypto
       .createHash("sha256")
@@ -637,7 +520,6 @@ v1Router.post("/auth/forgot-password", async (req, res) => {
       expires_at: new Date(Date.now() + 3600000), // 1 hour
     });
 
-    // TODO: Send email with reset link
     console.log(`Reset token for ${email}: ${resetToken}`);
 
     res.json({
@@ -650,9 +532,10 @@ v1Router.post("/auth/forgot-password", async (req, res) => {
   }
 });
 
-// ==========================================
-// 7.2. INCIDENT MANAGEMENT (/incidents)
-// ==========================================
+// ===========================================
+// 8. INCIDENT MANAGEMENT ROUTES
+// ===========================================
+// Create Incident
 v1Router.post(
   "/incidents",
   authenticate,
@@ -714,11 +597,7 @@ v1Router.post(
           reporter_id: req.user.id,
           reporter_nip: reporter?.nip,
           status: "open",
-
-          // --- FIX: Set status verifikasi awal 'pending' ---
           verification_status: "pending",
-          // ------------------------------------------------
-
           ...slaData,
           asset_name_reported: asset_identifier || null,
           reporter_attachment_url: attachment_url || null,
@@ -746,142 +625,127 @@ v1Router.post(
   }
 );
 
-v1Router.post(
-  "/public/incidents",
-  // TANPA authenticate, TANPA authorize
-  async (req, res) => {
-    try {
-      // Ambil payload, 'reporter_nip' diganti 'reporter_nik'
-      const {
+// Create Public Incident
+v1Router.post("/public/incidents", async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      category,
+      incident_location,
+      incident_date,
+      opd_id,
+      asset_identifier,
+      reporter_name,
+      reporter_email,
+      reporter_phone,
+      reporter_address,
+      reporter_nik,
+      attachment_url,
+    } = req.body;
+
+    if (
+      !title ||
+      !description ||
+      !opd_id ||
+      !reporter_name ||
+      !reporter_email ||
+      !reporter_phone
+    ) {
+      return res.status(400).json({
+        error:
+          "Data insiden dan data pelapor (nama, email, HP, OPD) tidak boleh kosong",
+      });
+    }
+
+    const urgencyVal = 3;
+    const impactVal = 3;
+    const { score: priorityScore, category: priorityCategory } =
+      calculatePriority(urgencyVal, impactVal);
+
+    const ticketNumber = generateTicketNumber("incident");
+    const creationTime = new Date();
+
+    const slaData = await calculateSLADue(
+      priorityCategory,
+      opd_id,
+      creationTime
+    );
+
+    const { data: ticket, error } = await supabase
+      .from("tickets")
+      .insert({
+        ticket_number: ticketNumber,
+        type: "incident",
         title,
         description,
-        category,
+        urgency: urgencyVal,
+        impact: impactVal,
+        priority_score: priorityScore,
+        priority: priorityCategory,
+        category: category || "Umum",
         incident_location,
-        incident_date,
-        opd_id,
-        asset_identifier,
-        // Data Pelapor Publik
-        reporter_name,
-        reporter_email,
-        reporter_phone,
-        reporter_address,
-        reporter_nik,
-        attachment_url,
-      } = req.body;
+        incident_date: incident_date || null,
+        opd_id: opd_id,
+        reporter_id: null,
+        reporter_nip: reporter_nik || null,
+        status: "open",
+        ...slaData,
+        reporter_name: reporter_name,
+        reporter_email: reporter_email,
+        reporter_phone: reporter_phone,
+        reporter_address: reporter_address || null,
+        asset_name_reported: asset_identifier || null,
+        reporter_attachment_url: attachment_url || null,
+        created_at: creationTime,
+      })
+      .select()
+      .single();
 
-      // Validasi ketat
-      if (
-        !title ||
-        !description ||
-        !opd_id ||
-        !reporter_name ||
-        !reporter_email ||
-        !reporter_phone
-      ) {
-        return res.status(400).json({
-          error:
-            "Data insiden dan data pelapor (nama, email, HP, OPD) tidak boleh kosong",
-        });
-      }
+    if (error) throw error;
 
-      // Default urgency/impact
-      const urgencyVal = 3;
-      const impactVal = 3;
-      const { score: priorityScore, category: priorityCategory } =
-        calculatePriority(urgencyVal, impactVal);
+    await logTicketActivity(
+      ticket.id,
+      null,
+      "create_public",
+      `Public Incident created: ${ticketNumber}`
+    );
 
-      const ticketNumber = generateTicketNumber("incident");
-
-      const creationTime = new Date(); // Ini adalah 'created_at'
-
-      // Hitung SLA
-      const slaData = await calculateSLADue(
-        priorityCategory,
-        opd_id,
-        creationTime // SLA dihitung dari KAPAN TIKET DIBUAT
-      );
-
-      // Insert ke database
-      const { data: ticket, error } = await supabase
-        .from("tickets")
-        .insert({
-          ticket_number: ticketNumber,
-          type: "incident",
-          title,
-          description,
-          urgency: urgencyVal,
-          impact: impactVal,
-          priority_score: priorityScore,
-          priority: priorityCategory,
-          category: category || "Umum",
-          incident_location,
-          incident_date: incident_date || null,
-          opd_id: opd_id,
-          reporter_id: null,
-          // --- PERBAIKAN 2: Simpan 'reporter_nik' (dari body) ke kolom 'reporter_nip' (di DB)
-          reporter_nip: reporter_nik || null,
-          status: "open",
-          ...slaData,
-
-          // --- Kolom Baru ---
-          reporter_name: reporter_name,
-          reporter_email: reporter_email,
-          reporter_phone: reporter_phone,
-          reporter_address: reporter_address || null,
-          asset_name_reported: asset_identifier || null,
-          reporter_attachment_url: attachment_url || null,
-
-          created_at: creationTime,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      await logTicketActivity(
-        ticket.id,
-        null, // user_id null
-        "create_public",
-        `Public Incident created: ${ticketNumber}`
-      );
-
-      res.status(201).json({
-        success: true,
-        message: "Insiden berhasil dilaporkan",
-        ticket: ticket,
-      });
-    } catch (error) {
-      console.error("Create public incident error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
+    res.status(201).json({
+      success: true,
+      message: "Insiden berhasil dilaporkan",
+      ticket: ticket,
+    });
+  } catch (error) {
+    console.error("Create public incident error:", error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
   }
-);
+});
 
+// Get Public OPD
 v1Router.get("/public/opd", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("opd")
-      .select("id, name") // Hanya kirim data yang perlu
+      .select("id, name")
       .eq("is_active", true)
       .order("name");
 
     if (error) throw error;
     res.json({ success: true, data });
   } catch (error) {
-    // <--- Ini perbaikannya
     console.error("Get public OPD error:", error);
     res.status(500).json({ error: "Terjadi kesalahan server" });
-  } // <--- Ini perbaikannya
+  }
 });
 
+// Get Public Ticket
 v1Router.get("/public/tickets/:ticket_number", async (req, res) => {
   try {
     const { ticket_number } = req.params;
 
-    console.log("🔍 Mencari tiket:", ticket_number); // 1. Cek apa yang diterima backend
+    console.log("🔍 Mencari tiket:", ticket_number);
 
-    // 2. Ganti .eq() dengan .ilike() agar tidak peduli huruf besar/kecil
-    // 3. Gunakan .maybeSingle() agar tidak error jika data kosong
     const { data: ticket, error } = await supabase
       .from("tickets")
       .select(
@@ -903,10 +767,8 @@ v1Router.get("/public/tickets/:ticket_number", async (req, res) => {
       .ilike("ticket_number", ticket_number)
       .maybeSingle();
 
-    // 4. LOG ERROR SUPABASE (Penting!)
     if (error) {
-      console.error("❌ Supabase Error:", error); // <--- Ini akan muncul di terminal Anda
-      // Jika errornya: "Could not find relationship...", berarti Foreign Key di DB belum diset
+      console.error("❌ Supabase Error:", error);
       return res.status(500).json({
         error: "Terjadi kesalahan database",
         details: error.message,
@@ -920,22 +782,21 @@ v1Router.get("/public/tickets/:ticket_number", async (req, res) => {
       });
     }
 
-    // 2. Ambil Riwayat Progress (History)
     await supabase.from("ticket_progress_updates").insert({
       ticket_id: ticket.id,
       update_number: 1,
-      updated_by: req.user?.id || null, // Null jika publik
-      status_change: "Open", // Status awal
+      updated_by: req.user?.id || null,
+      status_change: "Open",
       handling_description: "Tiket berhasil dibuat dan masuk antrian.",
-      update_time: new Date(), // Pastikan waktu sama
+      update_time: new Date(),
     });
+
     const { data: history } = await supabase
       .from("ticket_progress_updates")
       .select("update_time, status_change, handling_description")
       .eq("ticket_id", ticket.id)
       .order("update_time", { ascending: false });
 
-    // 3. Format Respons
     res.json({
       success: true,
       data: {
@@ -945,7 +806,7 @@ v1Router.get("/public/tickets/:ticket_number", async (req, res) => {
           description: ticket.description,
           status: ticket.status,
           category: ticket.category,
-          opd_name: ticket.opd?.name, // Flatten object
+          opd_name: ticket.opd?.name,
           location: ticket.incident_location,
           reporter_name: ticket.reporter_name,
           created_at: ticket.created_at,
@@ -960,6 +821,7 @@ v1Router.get("/public/tickets/:ticket_number", async (req, res) => {
   }
 });
 
+// Get Incidents
 v1Router.get("/incidents", authenticate, async (req, res) => {
   try {
     const {
@@ -991,11 +853,9 @@ v1Router.get("/incidents", authenticate, async (req, res) => {
       .order("created_at", { ascending: false })
       .range(offset, offset + parseInt(limit) - 1);
 
-    // Role-based filtering
     if (req.user.role === "pengguna" || req.user.role === "pegawai_opd") {
       query = query.eq("reporter_id", req.user.id);
     } else if (req.user.role === "teknisi") {
-      // ...
       query = query.eq("assigned_to", req.user.id);
     } else if (
       ["admin_opd", "bidang", "seksi", "helpdesk"].includes(req.user.role)
@@ -1003,7 +863,6 @@ v1Router.get("/incidents", authenticate, async (req, res) => {
       query = query.eq("opd_id", req.user.opd_id);
     }
 
-    // Filters
     if (status) query = query.eq("status", status);
     if (priority) query = query.eq("priority", priority);
     if (opd_id) query = query.eq("opd_id", opd_id);
@@ -1034,6 +893,7 @@ v1Router.get("/incidents", authenticate, async (req, res) => {
   }
 });
 
+// Get Incident Detail
 v1Router.get(
   "/incidents/:id",
   authenticate,
@@ -1063,12 +923,10 @@ v1Router.get(
         return res.status(404).json({ error: "Incident tidak ditemukan" });
       }
 
-      // Check access permission
       if (req.user.role === "pengguna" && ticket.reporter_id !== req.user.id) {
         return res.status(403).json({ error: "Akses ditolak" });
       }
 
-      // Get related data
       const { data: attachments } = await supabase
         .from("ticket_attachments")
         .select("*")
@@ -1109,6 +967,7 @@ v1Router.get(
   }
 );
 
+// Classify Incident
 v1Router.put(
   "/incidents/:id/classify",
   authenticate,
@@ -1128,7 +987,6 @@ v1Router.put(
       const urgencyVal = parseInt(urgency);
       const impactVal = parseInt(impact);
 
-      // 1. Ambil data tiket saat ini untuk menghitung ulang SLA
       const { data: currentTicket, error: getError } = await supabase
         .from("tickets")
         .select("opd_id, created_at")
@@ -1139,19 +997,15 @@ v1Router.put(
         return res.status(404).json({ error: "Tiket tidak ditemukan" });
       }
 
-      // 2. Hitung prioritas baru
       const { score: priorityScore, category: priorityCategory } =
         calculatePriority(urgencyVal, impactVal);
 
-      // 3. Hitung ulang SLA berdasarkan prioritas baru
-      // PENTING: Waktu mulai SLA tetap dihitung dari 'created_at' tiket
       const slaData = await calculateSLADue(
         priorityCategory,
         currentTicket.opd_id,
-        new Date(currentTicket.created_at) // Gunakan waktu tiket dibuat
+        new Date(currentTicket.created_at)
       );
 
-      // 4. Update tiket di database
       const { data: updatedTicket, error: updateError } = await supabase
         .from("tickets")
         .update({
@@ -1159,7 +1013,7 @@ v1Router.put(
           impact: impactVal,
           priority: priorityCategory,
           priority_score: priorityScore,
-          ...slaData, // Ini akan update sla_due, dll.
+          ...slaData,
           updated_at: new Date(),
         })
         .eq("id", id)
@@ -1168,7 +1022,6 @@ v1Router.put(
 
       if (updateError) throw updateError;
 
-      // 5. Catat aktivitas
       await logTicketActivity(
         id,
         userId,
@@ -1176,7 +1029,6 @@ v1Router.put(
         `Tiket diklasifikasi oleh Seksi. Prioritas baru: ${priorityCategory} (U: ${urgencyVal}, I: ${impactVal})`
       );
 
-      // 6. Kirim balasan
       res.json({
         success: true,
         message: "Insiden berhasil diklasifikasi dan prioritas diperbarui",
@@ -1189,6 +1041,7 @@ v1Router.put(
   }
 );
 
+// Update Incident
 v1Router.put(
   "/incidents/:id",
   authenticate,
@@ -1230,22 +1083,23 @@ v1Router.put(
       await logTicketActivity(
         req.params.id,
         req.user.id,
-        "update", // <-- Ganti jadi "update"
-        `Incident diperbarui oleh ${req.user.role}` // <-- Hapus ${reason}
+        "update",
+        `Incident diperbarui oleh ${req.user.role}`
       );
 
       res.json({
         success: true,
-        message: "Incident berhasil di-eskalasi",
+        message: "Incident berhasil diperbarui",
         ticket: data,
       });
     } catch (error) {
-      console.error("Escalate incident error:", error);
+      console.error("Update incident error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
 );
 
+// Merge Incidents
 v1Router.post(
   "/incidents/merge",
   authenticate,
@@ -1293,9 +1147,10 @@ v1Router.post(
   }
 );
 
-// ==========================================
-// 7.3. SERVICE REQUEST MANAGEMENT (/requests)
-// ==========================================
+// ===========================================
+// 9. SERVICE REQUEST MANAGEMENT ROUTES
+// ===========================================
+// Get Service Catalog
 v1Router.get("/catalog", authenticate, async (req, res) => {
   try {
     const { opd_id, is_active } = req.query;
@@ -1315,12 +1170,11 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
     if (error) throw error;
 
     for (const catalog of catalogs || []) {
-      // 1. Ambil data item
       const { data: items } = await supabase
         .from("service_items")
         .select(
           "id, parent_item_id, item_name, item_level, description, approval_required"
-        ) // <-- Hanya kolom penting
+        )
         .eq("catalog_id", catalog.id)
         .eq("is_active", true)
         .order("display_order");
@@ -1330,12 +1184,10 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
           (i) => i.item_level === "sub_layanan" && !i.parent_item_id
         ) || [];
 
-      // 2. Transformasi Data (Rename Key)
       const subLayanan_final = subLayanan_raw.map((sub) => {
         const level3_items_raw =
           items?.filter((i) => i.parent_item_id === sub.id) || [];
 
-        // Mapping Level 3 agar bersih
         const level3_items_final = level3_items_raw.map((item) => ({
           id: item.id,
           item_name: item.item_name,
@@ -1343,8 +1195,8 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
 
         return {
           id: sub.id,
-          sub_catalog_name: sub.item_name, // <-- Sesuai request frontend
-          service_items: level3_items_final, // <-- Sesuai request frontend
+          sub_catalog_name: sub.item_name,
+          service_items: level3_items_final,
           description: sub.description,
           approval_required: sub.approval_required,
         };
@@ -1365,6 +1217,7 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
   }
 });
 
+// Create Service Request
 v1Router.post(
   "/requests",
   authenticate,
@@ -1380,7 +1233,6 @@ v1Router.post(
         requested_date,
       } = req.body;
 
-      // Validasi Input
       if (!title || !description || !service_item_id) {
         return res.status(400).json({
           error: "Title, description, dan service_item_id tidak boleh kosong",
@@ -1394,8 +1246,6 @@ v1Router.post(
           .json({ error: "Akun Anda tidak terhubung ke OPD manapun." });
       }
 
-      // 1. AMBIL CONFIG APPROVAL DARI SERVICE ITEM
-      // Kita butuh tahu apakah layanan ini butuh approval & siapa approver-nya (array jsonb)
       const { data: itemData, error: itemError } = await supabase
         .from("service_items")
         .select("catalog_id, approval_required, approval_levels")
@@ -1408,14 +1258,10 @@ v1Router.post(
           .json({ error: "Service Item (Layanan) tidak ditemukan" });
       }
 
-      // 2. TENTUKAN STATUS AWAL
-      // Jika butuh approval -> 'pending_approval', jika tidak -> 'open'
-      // Sesuai constraint check database tickets.status
       const initialStatus = itemData.approval_required
         ? "pending_approval"
         : "open";
 
-      // 3. PERSIAPAN DATA TIKET
       const ticketNumber = generateTicketNumber("request");
       const creationTime = new Date();
 
@@ -1425,7 +1271,7 @@ v1Router.post(
         .eq("id", req.user.id)
         .single();
 
-      const priorityCategory = "medium"; // Default request priority
+      const priorityCategory = "medium";
 
       const slaData = await calculateSLADue(
         priorityCategory,
@@ -1433,7 +1279,6 @@ v1Router.post(
         creationTime
       );
 
-      // 4. INSERT KE TABEL TICKETS
       const { data: ticket, error } = await supabase
         .from("tickets")
         .insert({
@@ -1447,10 +1292,9 @@ v1Router.post(
           opd_id: targetOpdId,
           reporter_id: req.user.id,
           reporter_nip: reporter?.nip,
-          status: initialStatus, // <--- Status dinamis
+          status: initialStatus,
           priority: priorityCategory,
           ...slaData,
-
           reporter_attachment_url: attachment_url || null,
           requested_date: requested_date || null,
           created_at: creationTime,
@@ -1460,18 +1304,15 @@ v1Router.post(
 
       if (error) throw error;
 
-      // 5. INSERT KE TABEL APPROVAL_WORKFLOWS (CRITICAL FIX)
-      // Jika approval_required = true, kita loop array 'approval_levels'
       if (itemData.approval_required && itemData.approval_levels) {
-        // Asumsi format JSONB di DB: ["seksi", "bidang", "admin_opd"]
         const levels = itemData.approval_levels;
 
         if (Array.isArray(levels) && levels.length > 0) {
           const workflowInserts = levels.map((roleName, index) => ({
             ticket_id: ticket.id,
-            workflow_level: index + 1, // Urutan 1, 2, 3...
-            approver_role: roleName, // 'seksi', 'bidang', dll
-            status: "pending", // Default database schema
+            workflow_level: index + 1,
+            approver_role: roleName,
+            status: "pending",
             created_at: new Date(),
           }));
 
@@ -1484,10 +1325,10 @@ v1Router.post(
               "CRITICAL: Gagal membuat approval workflow",
               wfError.message
             );
-            // Opsional: Anda bisa throw error disini agar transaksi batal
           }
         }
       }
+
       await logTicketActivity(
         ticket.id,
         req.user.id,
@@ -1507,6 +1348,7 @@ v1Router.post(
   }
 );
 
+// Get Service Requests
 v1Router.get("/requests", authenticate, async (req, res) => {
   try {
     const { status, search, opd_id, page = 1, limit = 20 } = req.query;
@@ -1530,7 +1372,6 @@ v1Router.get("/requests", authenticate, async (req, res) => {
       .order("created_at", { ascending: false })
       .range(offset, offset + parseInt(limit) - 1);
 
-    // Role-based filtering
     if (req.user.role === "pengguna" || req.user.role === "pegawai_opd") {
       query = query.eq("reporter_id", req.user.id);
     } else if (req.user.role === "teknisi") {
@@ -1568,6 +1409,7 @@ v1Router.get("/requests", authenticate, async (req, res) => {
   }
 });
 
+// Get Service Request Detail
 v1Router.get(
   "/requests/:id",
   authenticate,
@@ -1629,6 +1471,7 @@ v1Router.get(
   }
 );
 
+// Update Service Request
 v1Router.put(
   "/requests/:id",
   authenticate,
@@ -1670,6 +1513,7 @@ v1Router.put(
   }
 );
 
+// Approve Service Request
 v1Router.post("/requests/:id/approve", authenticate, async (req, res) => {
   try {
     const { notes } = req.body;
@@ -1729,6 +1573,7 @@ v1Router.post("/requests/:id/approve", authenticate, async (req, res) => {
   }
 });
 
+// Reject Service Request
 v1Router.post("/requests/:id/reject", authenticate, async (req, res) => {
   try {
     const { notes } = req.body;
@@ -1778,9 +1623,10 @@ v1Router.post("/requests/:id/reject", authenticate, async (req, res) => {
   }
 });
 
-// ==========================================
-// 7.4. KNOWLEDGE BASE (/kb)
-// ==========================================
+// ===========================================
+// 10. KNOWLEDGE BASE ROUTES
+// ===========================================
+// Get Knowledge Base Articles
 v1Router.get("/kb", authenticate, async (req, res) => {
   try {
     const { category, status, search, page = 1, limit = 20 } = req.query;
@@ -1829,6 +1675,7 @@ v1Router.get("/kb", authenticate, async (req, res) => {
   }
 });
 
+// Suggest Knowledge Base Articles
 v1Router.get("/kb/suggest", authenticate, async (req, res) => {
   try {
     const { query } = req.query;
@@ -1853,6 +1700,7 @@ v1Router.get("/kb/suggest", authenticate, async (req, res) => {
   }
 });
 
+// Get Knowledge Base Article Detail
 v1Router.get("/kb/:id", authenticate, async (req, res) => {
   try {
     const { data: article, error } = await supabase
@@ -1884,6 +1732,7 @@ v1Router.get("/kb/:id", authenticate, async (req, res) => {
   }
 });
 
+// Create Knowledge Base Article
 v1Router.post("/kb", authenticate, authorize("kb.write"), async (req, res) => {
   try {
     const { title, content, category, tags, opd_id } = req.body;
@@ -1919,6 +1768,7 @@ v1Router.post("/kb", authenticate, authorize("kb.write"), async (req, res) => {
   }
 });
 
+// Update Knowledge Base Article
 v1Router.put(
   "/kb/:id",
   authenticate,
@@ -1954,6 +1804,7 @@ v1Router.put(
   }
 );
 
+// Delete Knowledge Base Article
 v1Router.delete(
   "/kb/:id",
   authenticate,
@@ -1978,9 +1829,9 @@ v1Router.delete(
   }
 );
 
-// ==========================================
-// 7.5. DASHBOARD
-// ==========================================
+// ===========================================
+// 11. DASHBOARD ROUTE
+// ===========================================
 v1Router.get("/dashboard", authenticate, async (req, res) => {
   try {
     const userRole = req.user.role;
@@ -2053,9 +1904,9 @@ v1Router.get("/dashboard", authenticate, async (req, res) => {
   }
 });
 
-// ==========================================
-// 7.7. SEARCH
-// ==========================================
+// ===========================================
+// 12. SEARCH ROUTE
+// ===========================================
 v1Router.get("/search", authenticate, async (req, res) => {
   try {
     const { q, type, page = 1, limit = 20 } = req.query;
@@ -2114,9 +1965,9 @@ v1Router.get("/search", authenticate, async (req, res) => {
   }
 });
 
-// ==========================================
-// 7.10. SYNC (Mobile Offline)
-// ==========================================
+// ===========================================
+// 13. SYNC ROUTE (Mobile Offline)
+// ===========================================
 v1Router.post("/sync", authenticate, async (req, res) => {
   try {
     const { tickets, progress_updates } = req.body;
@@ -2197,9 +2048,10 @@ v1Router.post("/sync", authenticate, async (req, res) => {
   }
 });
 
-// ==========================================
-// 7.11. ADMIN OPERATIONS (/admin)
-// ==========================================
+// ===========================================
+// 14. ADMIN OPERATIONS ROUTES
+// ===========================================
+// Get Users
 v1Router.get(
   "/admin/users",
   authenticate,
@@ -2250,10 +2102,11 @@ v1Router.get(
   }
 );
 
+// Create User
 v1Router.post(
   "/admin/users",
   authenticate,
-  authorize("users.write"), // <--- PERBAIKAN: Hanya admin yang bisa akses
+  authorize("users.write"),
   async (req, res) => {
     try {
       const {
@@ -2270,7 +2123,6 @@ v1Router.post(
         seksi_id,
       } = req.body;
 
-      // Validasi data wajib
       if (!username || !password || !email || !role || !full_name) {
         return res.status(400).json({
           error:
@@ -2278,14 +2130,12 @@ v1Router.post(
         });
       }
 
-      // Validasi agar role non-admin_kota harus punya OPD
       if (role !== "admin_kota" && !opd_id) {
         return res
           .status(400)
           .json({ error: "Hanya Admin Kota yang boleh tidak memiliki OPD ID" });
       }
 
-      // Validasi role yang masuk ada di konfigurasi RBAC Anda
       if (!RBAC_ROLES[role]) {
         return res.status(400).json({ error: "Role tidak valid" });
       }
@@ -2334,6 +2184,7 @@ v1Router.post(
   }
 );
 
+// Update User Role
 v1Router.put(
   "/admin/users/:id/role",
   authenticate,
@@ -2370,6 +2221,7 @@ v1Router.put(
   }
 );
 
+// Get OPDs
 v1Router.get(
   "/admin/opd",
   authenticate,
@@ -2409,6 +2261,7 @@ v1Router.get(
   }
 );
 
+// Update OPD Calendar
 v1Router.put(
   "/admin/opd/:id/calendar",
   authenticate,
@@ -2442,6 +2295,7 @@ v1Router.put(
   }
 );
 
+// Update Technician Skills
 v1Router.put(
   "/admin/technicians/:id/skills",
   authenticate,
@@ -2496,9 +2350,9 @@ v1Router.put(
   }
 );
 
-// ==========================================
-// 7.13. QR CODE SCANNING
-// ==========================================
+// ===========================================
+// 15. QR CODE SCANNING ROUTE
+// ===========================================
 v1Router.get("/assets/qr/:qr_code", authenticate, async (req, res) => {
   try {
     const qrCode = req.params.qr_code;
@@ -2560,9 +2414,10 @@ v1Router.get("/assets/qr/:qr_code", authenticate, async (req, res) => {
   }
 });
 
-// ==========================================
-// 7.14. COMMENTS
-// ==========================================
+// ===========================================
+// 16. COMMENTS ROUTES
+// ===========================================
+// Add Comment to Incident
 v1Router.post("/incidents/:id/comments", authenticate, async (req, res) => {
   try {
     const { content, is_internal } = req.body;
@@ -2602,6 +2457,7 @@ v1Router.post("/incidents/:id/comments", authenticate, async (req, res) => {
   }
 });
 
+// Add Comment to Request
 v1Router.post("/requests/:id/comments", authenticate, async (req, res) => {
   try {
     const { content, is_internal } = req.body;
@@ -2641,9 +2497,10 @@ v1Router.post("/requests/:id/comments", authenticate, async (req, res) => {
   }
 });
 
-// ==========================================
-// 7.15. PROGRESS UPDATES
-// ==========================================
+// ===========================================
+// 17. PROGRESS UPDATES ROUTES
+// ===========================================
+// Add Progress Update to Incident
 v1Router.post(
   "/incidents/:id/progress",
   authenticate,
@@ -2652,7 +2509,7 @@ v1Router.post(
     try {
       const {
         update_number,
-        status_change, // String dari frontend: "Selesai", "Ditangani", dll
+        status_change,
         reason,
         problem_detail,
         handling_description,
@@ -2665,14 +2522,13 @@ v1Router.post(
           .json({ error: "Update number dan status harus diisi" });
       }
 
-      // 1. INSERT PROGRESS UPDATE (Log History)
       const { data: progressUpdate, error } = await supabase
         .from("ticket_progress_updates")
         .insert({
           ticket_id: req.params.id,
           update_number: parseInt(update_number),
           updated_by: req.user.id,
-          status_change, // Disimpan sesuai label frontend utk history
+          status_change,
           reason,
           problem_detail,
           handling_description,
@@ -2683,12 +2539,9 @@ v1Router.post(
 
       if (error) throw error;
 
-      // 2. FIX: MAPPING STATUS FRONTEND -> DATABASE ENUM
-      // Constraint Database: 'open', 'verified', 'assigned', 'in_progress', 'resolved', 'closed'
       let dbStatus = null;
       let updatePayload = { updated_at: new Date() };
 
-      // Normalisasi input (lowercase biar aman)
       const statusInput = status_change.toLowerCase();
 
       if (
@@ -2710,7 +2563,6 @@ v1Router.post(
         updatePayload.closed_at = new Date();
       }
 
-      // 3. UPDATE STATUS TIKET (Hanya jika ada mapping yang cocok)
       if (dbStatus) {
         updatePayload.status = dbStatus;
 
@@ -2739,6 +2591,7 @@ v1Router.post(
   }
 );
 
+// Add Progress Update to Request
 v1Router.post(
   "/requests/:id/progress",
   authenticate,
@@ -2753,7 +2606,6 @@ v1Router.post(
           .json({ error: "Update number dan status harus diisi" });
       }
 
-      // 1. INSERT PROGRESS LOG
       const { data: progressUpdate, error } = await supabase
         .from("ticket_progress_updates")
         .insert({
@@ -2768,7 +2620,6 @@ v1Router.post(
 
       if (error) throw error;
 
-      // 2. FIX: MAPPING STATUS UNTUK REQUEST
       let dbStatus = null;
       let updatePayload = { updated_at: new Date() };
 
@@ -2785,7 +2636,6 @@ v1Router.post(
         dbStatus = "in_progress";
       }
 
-      // 3. UPDATE TICKET
       if (dbStatus) {
         updatePayload.status = dbStatus;
 
@@ -2814,9 +2664,9 @@ v1Router.post(
   }
 );
 
-// ==========================================
-// 7.16. AUDIT LOGS
-// ==========================================
+// ===========================================
+// 18. AUDIT LOGS ROUTE
+// ===========================================
 v1Router.get(
   "/admin/audit-logs",
   authenticate,
@@ -2871,15 +2721,15 @@ v1Router.get(
     }
   }
 );
-// ===========================================
-// 8. ERROR HANDLING
-// ===========================================
 
+// ===========================================
+// 19. ERROR HANDLING
+// ===========================================
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({
     error:
-      "Salah Kocak wkwkwkw , BASE URL YANG INI YA: https://manpro-473802.et.r.appspot.com/api/v1",
+      "BASE URL-NYA SALAH YA GAIS. YANG BENAR BASE URL: https://manpro-473802.et.r.appspot.com/api/v1",
     path: req.path,
     method: req.method,
   });
@@ -2904,7 +2754,7 @@ app.use((err, req, res, next) => {
 });
 
 // ===========================================
-// 9. SERVER START
+// 20. SERVER START
 // ===========================================
 app.listen(PORT, () => {
   console.log(`
@@ -2921,7 +2771,7 @@ Roles:
 - bidang            : Section head (verifier)
 - seksi             : Unit head (recorder)
 - teknisi           : Technician (handler)
-- pegawai_opd       : Ya pegawai
+- pegawai_opd       : OPD Employee
 - pengguna          : End user
 
 API Documentation: http://localhost:${PORT}/api-docs
@@ -2930,7 +2780,7 @@ API Documentation: http://localhost:${PORT}/api-docs
 });
 
 // ===========================================
-// 10. GRACEFUL SHUTDOWN
+// 21. GRACEFUL SHUTDOWN
 // ===========================================
 process.on("SIGTERM", () => {
   console.log("SIGTERM received, shutting down gracefully...");

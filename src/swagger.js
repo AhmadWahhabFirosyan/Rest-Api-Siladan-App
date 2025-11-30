@@ -3,23 +3,23 @@ const swaggerJsdoc = require("swagger-jsdoc");
 const swaggerDefinition = {
   openapi: "3.0.0",
   info: {
-    title: "Service Desk API v2.0",
+    title: "SILADAN APP API",
     version: "2.0.0",
     description:
-      "Dokumentasi API lengkap untuk sistem Service Desk. API ini mengelola insiden, permintaan layanan, basis pengetahuan, dan pengguna dengan dukungan SSO. Semua response dibungkus dalam format standar JSON.",
+      "Dokumentasi API lengkap untuk sistem Service Desk. API ini mengelola insiden, permintaan layanan, basis pengetahuan, dan pengguna. Semua response dibungkus dalam format standar JSON.",
     contact: {
-      name: "Developer Team",
-      email: "http://wa.me/+6281357571468",
+      name: "Contact Developer Ganteng",
+      url: "http://wa.me/+6281357571468",
     },
   },
   servers: [
     {
-      url: "http://localhost:8080/api/v1",
-      description: "Development Server",
-    },
-    {
       url: "https://manpro-473802.et.r.appspot.com/api/v1",
       description: "Production Server",
+    },
+    {
+      url: "https://siladan-app.onrender.com/api/v1",
+      description: "Secondary Production Server",
     },
   ],
   components: {
@@ -28,8 +28,7 @@ const swaggerDefinition = {
         type: "http",
         scheme: "bearer",
         bearerFormat: "JWT",
-        description:
-          "Token JWT yang didapat dari endpoint /auth/login atau /auth/callback",
+        description: "Token JWT yang didapat dari endpoint /auth/login",
       },
     },
     // ==========================================
@@ -142,16 +141,6 @@ const swaggerDefinition = {
           created_at: { type: "string", format: "date-time" },
         },
       },
-      SSORedirectResponse: {
-        type: "object",
-        properties: {
-          success: { type: "boolean", example: true },
-          redirect_url: {
-            type: "string",
-            example: "https://accounts.google.com/oauth/authorize?...",
-          },
-        },
-      },
 
       // --- INCIDENTS & REQUESTS (TICKETS) ---
       IncidentCreateAuth: {
@@ -244,60 +233,79 @@ const swaggerDefinition = {
         },
       },
       TicketDetailResponse: {
-        allOf: [
-          { $ref: "#/components/schemas/TicketListResponse" },
-          {
-            type: "object",
-            properties: {
-              description: { type: "string" },
-              urgency: { type: "integer" },
-              impact: { type: "integer" },
-              priority_score: { type: "integer" },
-              incident_location: { type: "string" },
-              incident_date: { type: "string", format: "date" },
-              reporter_nip: { type: "string" },
-              asset_name_reported: { type: "string" },
-              reporter_attachment_url: { type: "string" },
-              verification_status: { type: "string" },
-              resolution: { type: "string" },
-              resolved_at: { type: "string", format: "date-time" },
-              closed_at: { type: "string", format: "date-time" },
-              // Relations
-              reporter: { $ref: "#/components/schemas/UserResponse" },
-              recorder: { $ref: "#/components/schemas/UserResponse" },
-              verifier: { $ref: "#/components/schemas/UserResponse" },
-              technician: { $ref: "#/components/schemas/UserResponse" },
-              opd: { $ref: "#/components/schemas/OPDResponse" },
-              bidang: { $ref: "#/components/schemas/BidangResponse" },
-              seksi: { $ref: "#/components/schemas/SeksiResponse" },
-              service_catalog: {
-                $ref: "#/components/schemas/ServiceCatalogItem",
-              },
-              service_item: { $ref: "#/components/schemas/ServiceItem" },
-              // Related data
-              attachments: {
-                type: "array",
-                items: { $ref: "#/components/schemas/TicketAttachment" },
-              },
-              progress_updates: {
-                type: "array",
-                items: { $ref: "#/components/schemas/ProgressUpdate" },
-              },
-              comments: {
-                type: "array",
-                items: { $ref: "#/components/schemas/TicketComment" },
-              },
-              logs: {
-                type: "array",
-                items: { $ref: "#/components/schemas/TicketLog" },
-              },
-              approvals: {
-                type: "array",
-                items: { $ref: "#/components/schemas/ApprovalWorkflow" },
-              },
-            },
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          ticket_number: { type: "string", example: "INC-2023-1234" },
+          type: { type: "string", enum: ["incident", "request"] },
+          title: { type: "string" },
+          description: { type: "string" },
+          urgency: { type: "integer" },
+          impact: { type: "integer" },
+          priority_score: { type: "integer" },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "major"],
           },
-        ],
+          category: { type: "string" },
+          status: {
+            type: "string",
+            enum: [
+              "open",
+              "verified",
+              "assigned",
+              "in_progress",
+              "resolved",
+              "closed",
+              "pending_approval",
+              "rejected",
+              "merged",
+            ],
+          },
+          verification_status: {
+            type: "string",
+            enum: ["pending", "verified", "rejected"],
+          },
+          incident_location: { type: "string" },
+          incident_date: { type: "string", format: "date" },
+          reporter_nip: { type: "string" },
+          asset_name_reported: { type: "string" },
+          reporter_attachment_url: { type: "string" },
+          resolution: { type: "string" },
+          resolved_at: { type: "string", format: "date-time" },
+          closed_at: { type: "string", format: "date-time" },
+          sla_due: { type: "string", format: "date-time" },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" },
+          // Relations
+          reporter: { $ref: "#/components/schemas/UserResponse" },
+          recorder: { $ref: "#/components/schemas/UserResponse" },
+          verifier: { $ref: "#/components/schemas/UserResponse" },
+          technician: { $ref: "#/components/schemas/UserResponse" },
+          opd: { $ref: "#/components/schemas/OPDResponse" },
+          bidang: { $ref: "#/components/schemas/BidangResponse" },
+          seksi: { $ref: "#/components/schemas/SeksiResponse" },
+          service_catalog: { $ref: "#/components/schemas/ServiceCatalogItem" },
+          service_item: { $ref: "#/components/schemas/ServiceItem" },
+          // Related data arrays
+          attachments: { type: "array", items: { type: "object" } },
+          progress_updates: {
+            type: "array",
+            items: { $ref: "#/components/schemas/ProgressUpdate" },
+          },
+          comments: {
+            type: "array",
+            items: { $ref: "#/components/schemas/TicketComment" },
+          },
+          logs: {
+            type: "array",
+            items: { $ref: "#/components/schemas/TicketLog" },
+          },
+          approvals: {
+            type: "array",
+            items: { $ref: "#/components/schemas/ApprovalWorkflow" },
+          },
+        },
       },
       TicketListResponse: {
         type: "object",
@@ -327,7 +335,6 @@ const swaggerDefinition = {
           category: { type: "string" },
           sla_due: { type: "string", format: "date-time" },
           created_at: { type: "string", format: "date-time" },
-          updated_at: { type: "string", format: "date-time" },
           // Simplified relations for list view
           reporter: {
             type: "object",
@@ -347,16 +354,6 @@ const swaggerDefinition = {
             type: "object",
             properties: { id: { type: "integer" }, name: { type: "string" } },
           },
-        },
-      },
-      TicketAttachment: {
-        type: "object",
-        properties: {
-          id: { type: "string", format: "uuid" },
-          file_name: { type: "string" },
-          file_url: { type: "string" },
-          uploaded_by: { type: "string", format: "uuid" },
-          created_at: { type: "string", format: "date-time" },
         },
       },
       ProgressUpdate: {
@@ -387,6 +384,8 @@ const swaggerDefinition = {
         type: "object",
         properties: {
           id: { type: "string", format: "uuid" },
+          ticket_id: { type: "string", format: "uuid" },
+          user_id: { type: "string", format: "uuid" },
           action: { type: "string" },
           description: { type: "string" },
           user: {
@@ -403,6 +402,7 @@ const swaggerDefinition = {
         type: "object",
         properties: {
           id: { type: "string", format: "uuid" },
+          ticket_id: { type: "string", format: "uuid" },
           workflow_level: { type: "integer" },
           approver_role: { type: "string" },
           status: { type: "string", enum: ["pending", "approved", "rejected"] },
@@ -421,7 +421,8 @@ const swaggerDefinition = {
           status_change: {
             type: "string",
             example: "Sedang ditangani",
-            description: "Label status yang akan muncul di riwayat",
+            description:
+              "Label status yang akan muncul di riwayat (misal: 'Sedang ditangani', 'Selesai')",
           },
           reason: { type: "string", example: "Sedang dikerjakan teknisi" },
           problem_detail: { type: "string" },
@@ -525,6 +526,7 @@ const swaggerDefinition = {
               },
             },
           },
+          total_items: { type: "integer" },
         },
       },
       ServiceItem: {
@@ -601,10 +603,14 @@ const swaggerDefinition = {
                 properties: {
                   ticket_number: { type: "string" },
                   title: { type: "string" },
+                  description: { type: "string" },
                   status: { type: "string" },
+                  category: { type: "string" },
                   opd_name: { type: "string" },
+                  location: { type: "string" },
                   reporter_name: { type: "string" },
                   created_at: { type: "string", format: "date-time" },
+                  last_updated: { type: "string", format: "date-time" },
                 },
               },
               timeline: {
@@ -783,7 +789,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Get Dashboard Stats",
         description:
-          "Mengambil data statistik untuk dashboard pengguna. Data yang ditampilkan akan difilter berdasarkan role pengguna (misal: teknisi hanya melihat tiketnya sendiri).",
+          "Mengambil data statistik untuk dashboard pengguna. Data yang ditampilkan akan difilter berdasarkan role pengguna.",
         responses: {
           200: {
             description: "Berhasil mengambil data dashboard",
@@ -926,7 +932,14 @@ const swaggerDefinition = {
               },
             },
           },
-          404: { $ref: "#/components/responses/NotFound" },
+          404: {
+            description: "Aset tidak ditemukan",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
         },
       },
     },
@@ -1000,7 +1013,7 @@ const swaggerDefinition = {
                       properties: {
                         message: {
                           type: "string",
-                          example: "Registrasi publik berhasil",
+                          example: "Registrasi berhasil",
                         },
                         user: { $ref: "#/components/schemas/UserResponse" },
                       },
@@ -1012,62 +1025,6 @@ const swaggerDefinition = {
           },
           400: {
             description: "Data tidak valid atau username/email sudah digunakan",
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/ErrorResponse" },
-              },
-            },
-          },
-        },
-      },
-    },
-    "/auth/sso": {
-      get: {
-        tags: ["Authentication"],
-        summary: "Get SSO Login URL",
-        description:
-          "Mendapatkan URL redirect untuk login melalui SSO provider (Google, Keycloak, dll). Frontend harus mengarahkan user ke URL ini.",
-        parameters: [
-          {
-            name: "provider",
-            in: "query",
-            required: true,
-            schema: { type: "string", enum: ["google", "keycloak"] },
-          },
-        ],
-        responses: {
-          200: {
-            description: "URL redirect berhasil dibuat",
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/SSORedirectResponse" },
-              },
-            },
-          },
-        },
-      },
-    },
-    "/auth/callback": {
-      get: {
-        tags: ["Authentication"],
-        summary: "SSO Callback Endpoint",
-        description:
-          "Endpoint ini dipanggil oleh SSO provider setelah user berhasil login. Backend akan memproses kode otorisasi dan mengalihkan user kembali ke frontend dengan token.",
-        responses: {
-          302: {
-            description: "Redirect ke frontend",
-            headers: {
-              Location: {
-                description: "URL frontend dengan token parameter",
-                schema: {
-                  type: "string",
-                  example: "http://localhost:3000/auth/success?token=...",
-                },
-              },
-            },
-          },
-          400: {
-            description: "Kode otorisasi tidak ditemukan atau tidak valid",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -1199,7 +1156,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "List Incidents (Filtered)",
         description:
-          "Mengambil daftar tiket insiden. Hasil akan difilter berdasarkan role dan OPD pengguna.",
+          "Mengambil daftar tiket insiden. Hasil akan difilter berdasarkan role dan OPD pengguna. Memerlukan permission `tickets.read`.",
         parameters: [
           {
             name: "status",
@@ -1278,7 +1235,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Create Incident (Authenticated)",
         description:
-          "Membuat laporan insiden baru oleh pengguna yang sudah login (role pegawai_opd atau lebih tinggi).",
+          "Membuat laporan insiden baru oleh pengguna yang sudah login. Memerlukan permission `incidents.create`.",
         requestBody: {
           content: {
             "application/json": {
@@ -1321,7 +1278,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Get Incident Detail",
         description:
-          "Mengambil detail lengkap sebuah tiket insiden beserta riwayat, lampiran, dan komentar.",
+          "Mengambil detail lengkap sebuah tiket insiden beserta riwayat, lampiran, dan komentar. Memerlukan permission `tickets.read`.",
         parameters: [
           {
             name: "id",
@@ -1342,6 +1299,10 @@ const swaggerDefinition = {
                     ticket: {
                       $ref: "#/components/schemas/TicketDetailResponse",
                     },
+                    attachments: { type: "array" },
+                    progress_updates: { type: "array" },
+                    comments: { type: "array" },
+                    logs: { type: "array" },
                   },
                 },
               },
@@ -1370,7 +1331,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Update Incident",
         description:
-          "Memperbarui data insiden seperti judul, deskripsi, kategori, atau status.",
+          "Memperbarui data insiden seperti judul, deskripsi, kategori, atau status. Memerlukan permission `tickets.write`.",
         parameters: [
           {
             name: "id",
@@ -1391,6 +1352,11 @@ const swaggerDefinition = {
                   status: {
                     type: "string",
                     enum: ["open", "in_progress", "resolved", "closed"],
+                  },
+                  assigned_to: { type: "string", format: "uuid" },
+                  verification_status: {
+                    type: "string",
+                    enum: ["pending", "verified", "rejected"],
                   },
                 },
               },
@@ -1415,7 +1381,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Classify Incident (Set Priority)",
         description:
-          "Digunakan oleh staff (seksi/bidang) untuk menentukan urgensi dan dampak. Sistem akan otomatis menghitung ulang prioritas dan SLA.",
+          "Digunakan oleh staff (seksi/bidang) untuk menentukan urgensi dan dampak. Sistem akan otomatis menghitung ulang prioritas dan SLA. Memerlukan permission `tickets.write`.",
         parameters: [
           {
             name: "id",
@@ -1475,7 +1441,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Add Progress Update",
         description:
-          "Menambahkan pembaruan progress pada tiket, biasanya dilakukan oleh teknisi atau penanggung jawab.",
+          "Menambahkan pembaruan progress pada tiket, biasanya dilakukan oleh teknisi atau penanggung jawab. Memerlukan permission `tickets.update_progress`.",
         parameters: [
           {
             name: "id",
@@ -1559,7 +1525,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Merge Incidents",
         description:
-          "Menggabungkan beberapa tiket insiden (duplikat) menjadi satu tiket target.",
+          "Menggabungkan beberapa tiket insiden (duplikat) menjadi satu tiket target. Memerlukan permission `tickets.write`.",
         requestBody: {
           content: {
             "application/json": {
@@ -1740,7 +1706,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "List Service Requests",
         description:
-          "Mengambil daftar permintaan layanan. Hasil difilter berdasarkan role dan OPD pengguna.",
+          "Mengambil daftar permintaan layanan. Hasil difilter berdasarkan role dan OPD pengguna. Memerlukan permission `tickets.read`.",
         parameters: [
           {
             name: "status",
@@ -1757,6 +1723,7 @@ const swaggerDefinition = {
             },
           },
           { name: "search", in: "query", schema: { type: "string" } },
+          { name: "opd_id", in: "query", schema: { type: "integer" } },
           {
             name: "page",
             in: "query",
@@ -1796,7 +1763,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Create Service Request",
         description:
-          "Membuat permintaan layanan baru. Jika layanan memerlukan approval, status awal akan 'pending_approval'.",
+          "Membuat permintaan layanan baru. Jika layanan memerlukan approval, status awal akan 'pending_approval'. Memerlukan permission `requests.create`.",
         requestBody: {
           content: {
             "application/json": {
@@ -1839,7 +1806,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Get Request Detail",
         description:
-          "Mengambil detail permintaan layanan beserta alur approval dan riwayatnya.",
+          "Mengambil detail permintaan layanan beserta alur approval dan riwayatnya. Memerlukan permission `tickets.read`.",
         parameters: [
           {
             name: "id",
@@ -1864,6 +1831,10 @@ const swaggerDefinition = {
                       type: "array",
                       items: { $ref: "#/components/schemas/ApprovalWorkflow" },
                     },
+                    progress_updates: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/ProgressUpdate" },
+                    },
                   },
                 },
               },
@@ -1877,10 +1848,64 @@ const swaggerDefinition = {
               },
             },
           },
+          403: {
+            description: "Akses ditolak",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+      put: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update Service Request",
+        description:
+          "Memperbarui data permintaan layanan. Memerlukan permission `tickets.write`.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  status: {
+                    type: "string",
+                    enum: [
+                      "pending_approval",
+                      "open",
+                      "in_progress",
+                      "resolved",
+                      "rejected",
+                    ],
+                  },
+                  progress_notes: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Permintaan layanan berhasil diperbarui",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
         },
       },
     },
-    // ... (kode sebelumnya tetap sama) ...
     "/requests/{id}/approve": {
       post: {
         tags: ["Service Requests"],
@@ -1934,16 +1959,8 @@ const swaggerDefinition = {
               },
             },
           },
-          403: {
-            description: "Anda tidak berhak menyetujui permintaan ini",
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/ErrorResponse" },
-              },
-            },
-          },
           404: {
-            description: "Permintaan atau alur approval tidak ditemukan",
+            description: "Approval tidak ditemukan",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -2001,8 +2018,8 @@ const swaggerDefinition = {
               },
             },
           },
-          403: {
-            description: "Anda tidak berhak menolak permintaan ini",
+          404: {
+            description: "Approval tidak ditemukan",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -2018,7 +2035,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Add Progress Update",
         description:
-          "Menambahkan pembaruan progress pada tiket permintaan layanan.",
+          "Menambahkan pembaruan progress pada tiket permintaan layanan. Memerlukan permission `tickets.update_progress`.",
         parameters: [
           {
             name: "id",
@@ -2030,7 +2047,21 @@ const swaggerDefinition = {
         requestBody: {
           content: {
             "application/json": {
-              schema: { $ref: "#/components/schemas/ProgressUpdateInput" },
+              schema: {
+                type: "object",
+                required: ["update_number", "status_change"],
+                properties: {
+                  update_number: { type: "integer", example: 1 },
+                  status_change: {
+                    type: "string",
+                    example: "Sedang dikerjakan",
+                  },
+                  notes: {
+                    type: "string",
+                    description: "Catatan atau deskripsi pembaruan",
+                  },
+                },
+              },
             },
           },
         },
@@ -2060,7 +2091,8 @@ const swaggerDefinition = {
         tags: ["Service Requests"],
         security: [{ bearerAuth: [] }],
         summary: "Add Comment to Request",
-        description: "Menambahkan komentar pada tiket permintaan layanan.",
+        description:
+          "Menambahkan komentar pada tiket permintaan layanan. Bisa komentar publik atau internal (staff only).",
         parameters: [
           {
             name: "id",
@@ -2105,7 +2137,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "List Articles",
         description:
-          "Mengambil daftar artikel basis pengetahuan. Secara default hanya menampilkan artikel yang sudah dipublikasi.",
+          "Mengambil daftar artikel basis pengetahuan. Secara default hanya menampilkan artikel yang sudah dipublikasi. Memerlukan permission `kb.read`.",
         parameters: [
           {
             name: "search",
@@ -2157,7 +2189,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Create Article",
         description:
-          "Membuat artikel baru. Artikel baru akan memiliki status 'draft'.",
+          "Membuat artikel baru. Artikel baru akan memiliki status 'draft'. Memerlukan permission `kb.write`.",
         requestBody: {
           content: {
             "application/json": {
@@ -2190,7 +2222,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Suggest Articles",
         description:
-          "Memberikan saran artikel yang relevan berdasarkan query. Digunakan untuk fitur auto-complete.",
+          "Memberikan saran artikel yang relevan berdasarkan query. Digunakan untuk fitur auto-complete. Memerlukan permission `kb.read`.",
         parameters: [
           {
             name: "query",
@@ -2227,7 +2259,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Get Article Detail",
         description:
-          "Mengambil detail dan konten lengkap sebuah artikel. Jumlah view akan bertambah.",
+          "Mengambil detail dan konten lengkap sebuah artikel. Jumlah view akan bertambah. Memerlukan permission `kb.read`.",
         parameters: [
           {
             name: "id",
@@ -2265,7 +2297,8 @@ const swaggerDefinition = {
         tags: ["Knowledge Base"],
         security: [{ bearerAuth: [] }],
         summary: "Update Article",
-        description: "Memperbarui data artikel (judul, konten, kategori, dll).",
+        description:
+          "Memperbarui data artikel (judul, konten, kategori, dll). Memerlukan permission `kb.write`.",
         parameters: [
           {
             name: "id",
@@ -2305,7 +2338,8 @@ const swaggerDefinition = {
         tags: ["Knowledge Base"],
         security: [{ bearerAuth: [] }],
         summary: "Delete Article",
-        description: "Menghapus artikel secara permanen.",
+        description:
+          "Menghapus artikel secara permanen. Memerlukan permission `kb.write`.",
         parameters: [
           {
             name: "id",
@@ -2344,7 +2378,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "List Users",
         description:
-          "Mengambil daftar semua pengguna sistem, dengan filter role dan OPD.",
+          "Mengambil daftar semua pengguna sistem, dengan filter role dan OPD. Memerlukan permission `users.read`.",
         parameters: [
           {
             name: "role",
@@ -2403,7 +2437,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Create User (Admin)",
         description:
-          "Membuat pengguna baru oleh admin. Role dan OPD dapat ditentukan.",
+          "Membuat pengguna baru oleh admin. Role dan OPD dapat ditentukan. Memerlukan permission `users.write`.",
         requestBody: {
           content: {
             "application/json": {
@@ -2444,7 +2478,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Update User Role/OPD",
         description:
-          "Memperbarui role, OPD, bidang, atau seksi seorang pengguna.",
+          "Memperbarui role, OPD, bidang, atau seksi seorang pengguna. Memerlukan permission `users.write`.",
         parameters: [
           {
             name: "id",
@@ -2487,7 +2521,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "List OPD",
         description:
-          "Mengambil daftar semua OPD (Organisasi Perangkat Daerah).",
+          "Mengambil daftar semua OPD (Organisasi Perangkat Daerah). Memerlukan permission `opd.read`.",
         parameters: [
           { name: "is_active", in: "query", schema: { type: "boolean" } },
           {
@@ -2529,7 +2563,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Update OPD Calendar",
         description:
-          "Memperbarui jam kerja dan daftar hari libur untuk perhitungan SLA.",
+          "Memperbarui jam kerja dan daftar hari libur untuk perhitungan SLA. Memerlukan permission `opd.write`.",
         parameters: [
           {
             name: "id",
@@ -2575,7 +2609,8 @@ const swaggerDefinition = {
         tags: ["Admin"],
         security: [{ bearerAuth: [] }],
         summary: "Update Technician Skills",
-        description: "Memperbarui daftar keahlian (skills) seorang teknisi.",
+        description:
+          "Memperbarui daftar keahlian (skills) seorang teknisi. Memerlukan permission `users.write`.",
         parameters: [
           {
             name: "id",
@@ -2629,7 +2664,7 @@ const swaggerDefinition = {
         security: [{ bearerAuth: [] }],
         summary: "Get Audit Logs",
         description:
-          "Mengambil log audit aktivitas yang terjadi di dalam sistem.",
+          "Mengambil log audit aktivitas yang terjadi di dalam sistem. Memerlukan permission `reports.read`.",
         parameters: [
           {
             name: "user_id",
@@ -2685,7 +2720,7 @@ const swaggerDefinition = {
 
 const options = {
   definition: swaggerDefinition,
-  apis: [],
+  apis: [], // We are using inline definitions
 };
 
 const swaggerDocs = swaggerJsdoc(options);
