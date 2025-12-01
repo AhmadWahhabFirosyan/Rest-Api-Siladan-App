@@ -104,8 +104,6 @@ const reloadRbacCache = async () => {
     console.error("❌ Gagal memuat RBAC:", err.message);
   }
 };
-
-// Load pertama kali saat server start
 reloadRbacCache();
 
 // ===========================================
@@ -265,8 +263,27 @@ const sendNotification = async (
 // ===========================================
 // 7. AUTHENTICATION ROUTES
 // ===========================================
+// ===========================================
+// HELPER: FORMATTER PERMISSION (Letakkan di atas Route Login)
+// ===========================================
+const transformPermissionsForFrontend = (permissions) => {
+  return permissions.map((perm) => {
+    if (perm === "*") return { action: "manage", subject: "all" };
 
-// Regular Login
+    const [subject, action] = perm.split(".");
+
+    // Mapping Action agar sesuai standar Frontend (CASL)
+    let finalAction = action;
+    if (action === "*" || action === "write") finalAction = "manage";
+
+    // Mapping Subject (Opsional: ubah jamak ke tunggal)
+    let finalSubject = subject;
+    // if (finalSubject.endsWith('s')) finalSubject = finalSubject.slice(0, -1);
+
+    return { action: finalAction || "read", subject: finalSubject };
+  });
+};
+
 v1Router.post("/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -292,18 +309,27 @@ v1Router.post("/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Username atau password salah" });
     }
 
+    // Update last login
     await supabase
       .from("users")
       .update({ last_login_at: new Date() })
       .eq("id", user.id);
 
+    // Ambil permission dari Cache
+    const rawPermissions = RBAC_CACHE[user.role]?.permissions || [];
+
+    // --- PERUBAHAN DISINI: Format Permission ---
+    const frontendPermissions = transformPermissionsForFrontend(rawPermissions);
+
+    // Generate Token
     const token = jwt.sign(
       {
         id: user.id,
         username: user.username,
         role: user.role,
         opd_id: user.opd_id,
-        permissions: RBAC_CACHE[user.role]?.permissions || [],
+        // Di token tetap simpan string biar hemat size
+        permissions: rawPermissions,
       },
       JWT_SECRET,
       { expiresIn: "24h" }
@@ -320,9 +346,10 @@ v1Router.post("/auth/login", async (req, res) => {
         nip: user.nip,
         phone: user.phone,
         address: user.address,
-        role: user.role,
+        role: { id: user.role, name: user.role }, // Kirim object role
         opd_id: user.opd_id,
-        permissions: RBAC_CACHE[user.role]?.permissions || [],
+        // Kirim permission yang sudah diformat
+        permissions: frontendPermissions,
       },
     });
   } catch (error) {
