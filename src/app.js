@@ -73,88 +73,40 @@ v1Router.get("/", (req, res) => {
 });
 
 // ===========================================
-// 4. RBAC CONFIGURATION
+// 4. DYNAMIC RBAC CONFIGURATION (DB DRIVEN)
 // ===========================================
-const RBAC_ROLES = {
-  super_admin: { permissions: ["*"], description: "Super Administrator" },
-  admin_kota: {
-    permissions: [
-      "tickets.*",
-      "users.*",
-      "opd.*",
-      "reports.*",
-      "dashboard.*",
-      "kb.*",
-      "catalog.*",
-      "skills.*",
-    ],
-    description: "Administrator Kota",
-  },
-  admin_opd: {
-    permissions: [
-      "tickets.read",
-      "tickets.write",
-      "tickets.assign",
-      "users.read",
-      "users.write",
-      "kb.*",
-      "reports.read",
-      "dashboard.read",
-    ],
-    description: "Administrator OPD",
-  },
-  bidang: {
-    permissions: [
-      "tickets.read",
-      "tickets.write",
-      "tickets.verify",
-      "dashboard.read",
-    ],
-    description: "Kepala Bidang - Verifier",
-  },
-  seksi: {
-    permissions: [
-      "tickets.read",
-      "tickets.write",
-      "tickets.assign",
-      "dashboard.read",
-    ],
-    description: "Kepala Seksi - Recorder",
-  },
-  helpdesk: {
-    permissions: [
-      "tickets.read",
-      "tickets.write",
-      "tickets.verify",
-      "tickets.assign",
-      "dashboard.read",
-    ],
-    description: "Helpdesk - Gabungan Verifier & Recorder",
-  },
-  teknisi: {
-    permissions: [
-      "tickets.read",
-      "tickets.write",
-      "tickets.update_progress",
-      "kb.read",
-      "dashboard.read",
-    ],
-    description: "Teknisi - Handler",
-  },
-  pengguna: {
-    permissions: ["tickets.read", "incidents.create", "kb.read"],
-    description: "Pengguna Publik / Masyarakat",
-  },
-  pegawai_opd: {
-    permissions: [
-      "tickets.read",
-      "incidents.create",
-      "requests.create",
-      "kb.read",
-    ],
-    description: "Pegawai Internal OPD",
-  },
+// Variabel Global untuk menyimpan Role di Memory (Cache)
+// Supaya tidak query DB setiap kali ada request (Performance Optimization)
+let RBAC_CACHE = {};
+
+// Fungsi untuk refresh cache dari Database
+const reloadRbacCache = async () => {
+  try {
+    const { data, error } = await supabase
+      .from("roles_config")
+      .select("role_key, permissions, description");
+
+    if (error) throw error;
+
+    // Reset dan isi ulang cache
+    RBAC_CACHE = {};
+    data.forEach((role) => {
+      RBAC_CACHE[role.role_key] = {
+        permissions: role.permissions || [],
+        description: role.description,
+      };
+    });
+
+    console.log(
+      `🔄 RBAC Cache Reloaded: ${Object.keys(RBAC_CACHE).length} roles loaded.`
+    );
+  } catch (err) {
+    console.error("❌ Gagal memuat RBAC:", err.message);
+  }
 };
+
+// Load pertama kali saat server start
+reloadRbacCache();
 
 // ===========================================
 // 5. AUTHENTICATION & AUTHORIZATION MIDDLEWARE
@@ -179,12 +131,17 @@ const authenticate = (req, res, next) => {
 const authorize = (permission) => {
   return (req, res, next) => {
     const userRole = req.user.role;
-    const roleConfig = RBAC_ROLES[userRole];
+
+    // Ambil config dari Cache
+    const roleConfig = RBAC_CACHE[userRole];
 
     if (!roleConfig) {
-      return res.status(403).json({ error: "Role tidak valid" });
+      return res.status(403).json({
+        error: "Role pengguna tidak valid atau tidak ditemukan konfigurasi.",
+      });
     }
 
+    // Logic Pengecekan Permission (Sama seperti sebelumnya)
     if (
       roleConfig.permissions.includes("*") ||
       roleConfig.permissions.includes(permission) ||
@@ -194,7 +151,11 @@ const authorize = (permission) => {
     ) {
       next();
     } else {
-      return res.status(403).json({ error: "Permission tidak cukup" });
+      return res.status(403).json({
+        error: "Akses Ditolak: Anda tidak memiliki izin untuk akses ini.",
+        required: permission,
+        your_role: userRole,
+      });
     }
   };
 };
@@ -342,7 +303,7 @@ v1Router.post("/auth/login", async (req, res) => {
         username: user.username,
         role: user.role,
         opd_id: user.opd_id,
-        permissions: RBAC_ROLES[user.role]?.permissions || [],
+        permissions: RBAC_CACHE[user.role]?.permissions || [],
       },
       JWT_SECRET,
       { expiresIn: "24h" }
@@ -361,7 +322,7 @@ v1Router.post("/auth/login", async (req, res) => {
         address: user.address,
         role: user.role,
         opd_id: user.opd_id,
-        permissions: RBAC_ROLES[user.role]?.permissions || [],
+        permissions: RBAC_CACHE[user.role]?.permissions || [],
       },
     });
   } catch (error) {
@@ -1169,47 +1130,67 @@ v1Router.get("/catalog", authenticate, async (req, res) => {
     const { data: catalogs, error } = await query;
     if (error) throw error;
 
+    const formattedData = [];
+
     for (const catalog of catalogs || []) {
+      // 1. Ambil semua items untuk catalog ini
       const { data: items } = await supabase
         .from("service_items")
         .select(
-          "id, parent_item_id, item_name, item_level, description, approval_required"
+          "id, item_code, parent_item_id, item_name, item_level, description, approval_required, required_fields"
         )
         .eq("catalog_id", catalog.id)
         .eq("is_active", true)
         .order("display_order");
 
+      // Filter Level 2 (Sub-Layanan / Parent)
       const subLayanan_raw =
         items?.filter(
           (i) => i.item_level === "sub_layanan" && !i.parent_item_id
         ) || [];
 
-      const subLayanan_final = subLayanan_raw.map((sub) => {
+      // Mapping Level 2 -> Format Frontend
+      const childrenLevel2 = subLayanan_raw.map((sub) => {
+        // Filter Level 3 (Service Items / Child)
         const level3_items_raw =
           items?.filter((i) => i.parent_item_id === sub.id) || [];
 
-        const level3_items_final = level3_items_raw.map((item) => ({
-          id: item.id,
-          item_name: item.item_name,
+        // Mapping Level 3 -> Format Frontend
+        const childrenLevel3 = level3_items_raw.map((item) => ({
+          id: item.id, // Atau item.item_code jika ingin string "SRV-001"
+          name: item.item_name,
+          desc: item.description,
+          // Custom logic: jika ada field 'asset_id' di required_fields, berarti butuh aset
+          needAsset: JSON.stringify(item.required_fields || {}).includes(
+            "asset"
+          ),
+          workflow: item.approval_required ? "approval" : "internal",
         }));
 
         return {
-          id: sub.id,
-          sub_catalog_name: sub.item_name,
-          service_items: level3_items_final,
-          description: sub.description,
-          approval_required: sub.approval_required,
+          id: sub.id, // Atau sub.item_code
+          name: sub.item_name,
+          // Logic: Jika sub-layanan butuh aset (bisa diset manual atau cek anak-anaknya)
+          needAsset: childrenLevel3.some((c) => c.needAsset),
+          workflow: "internal", // Default untuk grouping
+          children: childrenLevel3,
         };
       });
 
-      catalog.sub_layanan = subLayanan_final;
-      catalog.total_items = items?.length || 0;
+      // Mapping Level 1 (Catalog) -> Format Frontend
+      formattedData.push({
+        id: catalog.id, // Atau catalog.catalog_code ("CAT-001")
+        name: catalog.catalog_name,
+        icon: catalog.icon || "folder",
+        isReadOnly: true, // Level 1 biasanya hanya judul
+        children: childrenLevel2,
+      });
     }
 
+    // Kirim response langsung array (atau bungkus data jika perlu)
     res.json({
       success: true,
-      count: catalogs?.length || 0,
-      catalogs: catalogs || [],
+      data: formattedData,
     });
   } catch (error) {
     console.error("Get catalogs error:", error);
@@ -2051,7 +2032,162 @@ v1Router.post("/sync", authenticate, async (req, res) => {
 // ===========================================
 // 14. ADMIN OPERATIONS ROUTES
 // ===========================================
-// Get Users
+// GET /admin/roles - List Semua Role & Permission-nya
+v1Router.get(
+  "/admin/roles",
+  authenticate,
+  authorize("rbac.manage"),
+  async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("roles_config")
+        .select("*")
+        .order("role_key");
+
+      if (error) throw error;
+      res.json({ success: true, data });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// POST /admin/roles - Buat Role Baru (Custom Role)
+v1Router.post(
+  "/admin/roles",
+  authenticate,
+  authorize("rbac.manage"), // Hanya Super Admin / Admin Kota
+  async (req, res) => {
+    try {
+      const { role_key, description, permissions } = req.body;
+
+      // Validasi: role_key tidak boleh spasi, harus unik
+      if (!role_key || !/^[a-z0-9_]+$/.test(role_key)) {
+        return res
+          .status(400)
+          .json({ error: "Role Key harus huruf kecil dan underscore (a-z_)" });
+      }
+
+      const { data, error } = await supabase
+        .from("roles_config")
+        .insert({
+          role_key,
+          description,
+          permissions: permissions || [],
+          is_system: false, // Role buatan user bukan sistem
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // PENTING: Refresh Cache agar role baru langsung aktif
+      await reloadRbacCache();
+
+      // PENTING: Perbarui Constraint Check di Database (Opsional tapi disarankan)
+      // Note: Di Supabase/Postgres, mengubah CHECK constraint kolom 'role' di tabel users
+      // butuh query ALTER TABLE. Untuk MVP, abaikan dulu atau handle manual.
+
+      res.status(201).json({
+        success: true,
+        message: "Role baru berhasil dibuat",
+        role: data,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// PUT /admin/roles/:id - Edit Permission Role
+v1Router.put(
+  "/admin/roles/:id",
+  authenticate,
+  authorize("rbac.manage"),
+  async (req, res) => {
+    try {
+      const { permissions, description } = req.body;
+      const roleId = req.params.id;
+
+      // Validasi input
+      if (!Array.isArray(permissions)) {
+        return res
+          .status(400)
+          .json({ error: "Permissions harus berupa array string" });
+      }
+
+      // Update Database
+      const { data, error } = await supabase
+        .from("roles_config")
+        .update({
+          permissions,
+          description,
+          updated_at: new Date(),
+        })
+        .eq("id", roleId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // PENTING: Refresh Cache agar perubahan permission langsung berlaku
+      await reloadRbacCache();
+
+      await logTicketActivity(
+        0,
+        req.user.id,
+        "rbac_update",
+        `Update permissions for role ${data.role_key}`
+      );
+
+      res.json({
+        success: true,
+        message: "Permissions role berhasil diupdate",
+        role: data,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// DELETE /admin/roles/:id - Hapus Role
+v1Router.delete(
+  "/admin/roles/:id",
+  authenticate,
+  authorize("rbac.manage"),
+  async (req, res) => {
+    try {
+      // Cek apakah role system (tidak boleh dihapus)
+      const { data: roleCheck } = await supabase
+        .from("roles_config")
+        .select("is_system, role_key")
+        .eq("id", req.params.id)
+        .single();
+
+      if (roleCheck && roleCheck.is_system) {
+        return res
+          .status(403)
+          .json({ error: "Role sistem bawaan tidak dapat dihapus." });
+      }
+
+      // Hapus
+      const { error } = await supabase
+        .from("roles_config")
+        .delete()
+        .eq("id", req.params.id);
+
+      if (error) throw error;
+
+      await reloadRbacCache();
+
+      res.json({ success: true, message: "Role berhasil dihapus" });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 v1Router.get(
   "/admin/users",
   authenticate,

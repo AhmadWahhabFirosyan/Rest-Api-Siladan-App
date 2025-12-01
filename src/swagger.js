@@ -2372,6 +2372,152 @@ const swaggerDefinition = {
     // ==========================================
     // 6. ADMIN OPERATIONS
     // ==========================================
+    // ... (di dalam object paths)
+    "/admin/roles": {
+      get: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "List RBAC Roles",
+        description:
+          "Mengambil daftar role dan permission yang tersimpan di database.",
+        responses: {
+          200: {
+            description: "Daftar Role",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          role_key: { type: "string" },
+                          description: { type: "string" },
+                          permissions: {
+                            type: "array",
+                            items: { type: "string" },
+                          },
+                          is_system: { type: "boolean" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Create Custom Role",
+        description:
+          "Membuat role baru secara dinamis. Memerlukan permission `rbac.manage`.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["role_key", "description"],
+                properties: {
+                  role_key: {
+                    type: "string",
+                    example: "supervisor_lapangan",
+                    description: "Harus huruf kecil dan underscore (a-z_)",
+                  },
+                  description: { type: "string" },
+                  permissions: {
+                    type: "array",
+                    items: { type: "string" },
+                    example: ["tickets.read", "incidents.create"],
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Role berhasil dibuat",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/admin/roles/{id}": {
+      put: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update Role Permissions",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  description: { type: "string" },
+                  permissions: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Role berhasil diupdate",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+      delete: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Delete Role",
+        description: "Role sistem (bawaan) tidak bisa dihapus.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Role berhasil dihapus",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SuccessResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+
     "/admin/users": {
       get: {
         tags: ["Admin"],
