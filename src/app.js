@@ -67,7 +67,7 @@ app.use("/api/v1", v1Router);
 v1Router.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Welcome to Service Desk API v2.0 (SSO Enabled)",
+    message: "Welcome to Siladan App API",
     version: "2.0.0",
   });
 });
