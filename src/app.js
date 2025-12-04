@@ -75,11 +75,8 @@ v1Router.get("/", (req, res) => {
 // ===========================================
 // 4. DYNAMIC RBAC CONFIGURATION (DB DRIVEN)
 // ===========================================
-// Variabel Global untuk menyimpan Role di Memory (Cache)
-// Supaya tidak query DB setiap kali ada request (Performance Optimization)
 let RBAC_CACHE = {};
 
-// Fungsi untuk refresh cache dari Database
 const reloadRbacCache = async () => {
   try {
     const { data, error } = await supabase
@@ -180,44 +177,73 @@ const generateTicketNumber = (type) => {
   return `${prefix}-${year}-${random}`;
 };
 
-const calculateSLADue = async (priority, opdId, startTime) => {
+const calculateBusinessSLA = async (opdId, priority, startTime) => {
   try {
-    const { data: sla } = await supabase
+    // 1. Ambil konfigurasi durasi SLA (dalam jam)
+    const { data: slaConfig } = await supabase
       .from("sla")
       .select("resolution_time")
       .eq("opd_id", opdId)
       .eq("priority", priority)
       .single();
 
-    if (!sla || !sla.resolution_time) {
+    if (!slaConfig || !slaConfig.resolution_time) {
       console.warn(
-        `PERINGATAN: Konfigurasi SLA tidak ditemukan untuk opd_id: ${opdId}, priority: ${priority}. Menggunakan default null.`
+        `⚠️ SLA Config missing for OPD ${opdId}, Priority ${priority}`
       );
-      return {
-        sla_due: null,
-        sla_target_date: null,
-        sla_target_time: null,
-      };
+      return null;
     }
 
-    const dueDate = new Date(
-      startTime.getTime() + sla.resolution_time * 60 * 60 * 1000
-    );
+    let remainingHours = slaConfig.resolution_time;
+    let currentDate = new Date(startTime);
+
+    // 2. Ambil Jadwal Kerja & Libur OPD
+    const { data: workingHours } = await supabase
+      .from("opd_working_hours")
+      .select("day_of_week, start_time, end_time, is_working_day")
+      .eq("opd_id", opdId);
+
+    const { data: holidays } = await supabase
+      .from("opd_holidays")
+      .select("holiday_date")
+      .eq("opd_id", opdId);
+
+    const holidaySet = new Set(holidays?.map((h) => h.holiday_date) || []);
+
+    let safetyCounter = 0;
+
+    while (remainingHours > 0 && safetyCounter < 720) {
+      currentDate.setHours(currentDate.getHours() + 1);
+      safetyCounter++;
+
+      const dateString = currentDate.toISOString().split("T")[0];
+      const dayOfWeek = currentDate.getDay();
+
+      if (holidaySet.has(dateString)) continue;
+
+      const schedule = workingHours?.find((wh) => wh.day_of_week === dayOfWeek);
+
+      if (!schedule || !schedule.is_working_day) continue;
+
+      const startHour = parseInt(schedule.start_time.split(":")[0]);
+      const endHour = parseInt(schedule.end_time.split(":")[0]);
+      const currentHour = currentDate.getHours();
+
+      if (currentHour > startHour && currentHour <= endHour) {
+        remainingHours--;
+      }
+    }
+
     return {
-      sla_due: dueDate,
-      sla_target_date: dueDate.toISOString().split("T")[0],
-      sla_target_time: dueDate.toTimeString().split(" ")[0],
+      sla_due: currentDate,
+      sla_target_date: currentDate.toISOString().split("T")[0],
+      sla_target_time: currentDate.toTimeString().split(" ")[0],
     };
   } catch (error) {
-    console.error("Error calculating SLA:", error);
-    return {
-      sla_due: null,
-      sla_target_date: null,
-      sla_target_time: null,
-    };
+    console.error("❌ Error calculating Business SLA:", error);
+    return null;
   }
 };
-
 const logTicketActivity = async (
   ticketId,
   userId,
@@ -259,12 +285,98 @@ const sendNotification = async (
     console.error("Error sending notification:", error);
   }
 };
+cron.schedule("*/10 * * * *", async () => {
+  console.log("⏰ [CRON] Memeriksa SLA Breach...");
 
+  try {
+    const now = new Date().toISOString();
+
+    // 1. Cari tiket yang:
+    //    - Statusnya BUKAN (resolved, closed, rejected)
+    //    - Waktu SLA Due-nya sudah lewat dari Sekarang
+    //    - Belum ditandai 'sla_breached' (supaya tidak spam notifikasi berulang kali)
+    const { data: breachedTickets, error } = await supabase
+      .from("tickets")
+      .select(
+        `
+        id, 
+        ticket_number, 
+        title, 
+        assigned_to, 
+        opd_id,
+        technician:assigned_to(full_name, email)
+      `
+      )
+      .lt("sla_due", now)
+      .eq("sla_breached", false)
+      .not("status", "in", "('resolved','closed','rejected')");
+
+    if (error) throw error;
+
+    if (breachedTickets && breachedTickets.length > 0) {
+      console.warn(
+        `⚠️ Ditemukan ${breachedTickets.length} tiket melanggar SLA!`
+      );
+
+      const ticketIds = breachedTickets.map((t) => t.id);
+
+      // 2. Update status di Database agar tidak diproses lagi
+      await supabase
+        .from("tickets")
+        .update({ sla_breached: true })
+        .in("id", ticketIds);
+
+      // 3. Lakukan Eskalasi (Kirim Notifikasi)
+      for (const ticket of breachedTickets) {
+        // A. Log Aktivitas Sistem
+        await logTicketActivity(
+          ticket.id,
+          null, // System user
+          "escalation",
+          "SLA Terlewati. Eskalasi otomatis ke Admin OPD."
+        );
+
+        // B. Cari Admin OPD untuk dikirimi notifikasi eskalasi
+        const { data: admins } = await supabase
+          .from("users")
+          .select("id")
+          .eq("opd_id", ticket.opd_id)
+          .eq("role", "admin_opd");
+
+        // C. Kirim Notifikasi ke Teknisi (Peringatan) & Admin (Eskalasi)
+        // Ke Teknisi
+        if (ticket.assigned_to) {
+          await sendNotification(
+            ticket.assigned_to,
+            "SLA BREACH ALERT",
+            `Tiket ${ticket.ticket_number} telah melewati batas waktu!`,
+            "error",
+            ticket.id
+          );
+        }
+
+        // Ke Admin OPD
+        if (admins) {
+          for (const admin of admins) {
+            await sendNotification(
+              admin.id,
+              "ESKALASI TIKET",
+              `Tiket ${ticket.ticket_number} belum selesai melewati SLA. Mohon tinjau.`,
+              "warning",
+              ticket.id
+            );
+          }
+        }
+      }
+    } else {
+      console.log("✅ Tidak ada SLA breach baru.");
+    }
+  } catch (err) {
+    console.error("❌ [CRON ERROR] Gagal menjalankan SLA Check:", err.message);
+  }
+});
 // ===========================================
 // 7. AUTHENTICATION ROUTES
-// ===========================================
-// ===========================================
-// HELPER: FORMATTER PERMISSION (Letakkan di atas Route Login)
 // ===========================================
 const transformPermissionsForFrontend = (permissions) => {
   return permissions.map((perm) => {
@@ -555,11 +667,17 @@ v1Router.post(
       const targetOpdId = opd_id || req.user.opd_id;
       const creationTime = new Date();
 
-      const slaData = await calculateSLADue(
-        priorityCategory,
+      const slaDataRaw = await calculateBusinessSLA(
         targetOpdId,
+        priorityCategory,
         creationTime
       );
+      // Fallback simpel jika calculateBusinessSLA gagal/null (misal data master belum diisi)
+      const slaData = slaDataRaw || {
+        sla_due: null,
+        sla_target_date: null,
+        sla_target_time: null,
+      };
 
       const { data: reporter } = await supabase
         .from("users")
@@ -654,11 +772,17 @@ v1Router.post("/public/incidents", async (req, res) => {
     const ticketNumber = generateTicketNumber("incident");
     const creationTime = new Date();
 
-    const slaData = await calculateSLADue(
+    const slaDataRaw = await calculateBusinessSLA(
+      targetOpdId,
       priorityCategory,
-      opd_id,
       creationTime
     );
+    // Fallback simpel jika calculateBusinessSLA gagal/null (misal data master belum diisi)
+    const slaData = slaDataRaw || {
+      sla_due: null,
+      sla_target_date: null,
+      sla_target_time: null,
+    };
 
     const { data: ticket, error } = await supabase
       .from("tickets")
@@ -988,11 +1112,17 @@ v1Router.put(
       const { score: priorityScore, category: priorityCategory } =
         calculatePriority(urgencyVal, impactVal);
 
-      const slaData = await calculateSLADue(
+      const slaDataRaw = await calculateBusinessSLA(
+        targetOpdId,
         priorityCategory,
-        currentTicket.opd_id,
-        new Date(currentTicket.created_at)
+        creationTime
       );
+      // Fallback simpel jika calculateBusinessSLA gagal/null (misal data master belum diisi)
+      const slaData = slaDataRaw || {
+        sla_due: null,
+        sla_target_date: null,
+        sla_target_time: null,
+      };
 
       const { data: updatedTicket, error: updateError } = await supabase
         .from("tickets")
@@ -1281,11 +1411,17 @@ v1Router.post(
 
       const priorityCategory = "medium";
 
-      const slaData = await calculateSLADue(
-        priorityCategory,
+      const slaDataRaw = await calculateBusinessSLA(
         targetOpdId,
+        priorityCategory,
         creationTime
       );
+      // Fallback simpel jika calculateBusinessSLA gagal/null (misal data master belum diisi)
+      const slaData = slaDataRaw || {
+        sla_due: null,
+        sla_target_date: null,
+        sla_target_time: null,
+      };
 
       const { data: ticket, error } = await supabase
         .from("tickets")
@@ -2059,7 +2195,6 @@ v1Router.post("/sync", authenticate, async (req, res) => {
 // ===========================================
 // 14. ADMIN OPERATIONS ROUTES
 // ===========================================
-// GET /admin/roles - List Semua Role & Permission-nya
 v1Router.get(
   "/admin/roles",
   authenticate,
@@ -2079,7 +2214,6 @@ v1Router.get(
   }
 );
 
-// POST /admin/roles - Buat Role Baru (Custom Role)
 v1Router.post(
   "/admin/roles",
   authenticate,
@@ -2512,7 +2646,49 @@ v1Router.put(
     }
   }
 );
+// UPSERT SLA CONFIGURATION (UPDATED)
+v1Router.post(
+  "/admin/sla",
+  authenticate,
+  authorize("opd.write"),
+  async (req, res) => {
+    try {
+      const { opd_id, configs } = req.body;
 
+      // Validasi input
+      if (!opd_id || !Array.isArray(configs)) {
+        return res
+          .status(400)
+          .json({ error: "Format data salah. 'configs' harus array." });
+      }
+
+      // Mapping data untuk disimpan ke DB
+      const upsertData = configs.map((c) => ({
+        opd_id,
+        priority: c.priority,
+        resolution_time: c.resolution_time, // Tetap angka (Jam) untuk hitung SLA_DUE
+        description: c.description, // GANTI: Teks deskripsi SLA Respon
+        ticket_type: "incident", // Default
+      }));
+
+      const { data, error } = await supabase
+        .from("sla")
+        .upsert(upsertData, { onConflict: "opd_id, priority" })
+        .select();
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        message: "Konfigurasi SLA berhasil disimpan",
+        data,
+      });
+    } catch (error) {
+      console.error("SLA Config Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 // ===========================================
 // 15. QR CODE SCANNING ROUTE
 // ===========================================
