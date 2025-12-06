@@ -703,6 +703,7 @@ v1Router.post(
           reporter_id: req.user.id,
           reporter_nip: reporter?.nip,
           status: "open",
+          stage: "triase",
           verification_status: "pending",
           ...slaData,
           asset_name_reported: asset_identifier || null,
@@ -1233,9 +1234,10 @@ v1Router.post(
       await supabase
         .from("tickets")
         .update({
-          status: "merged",
+          status: "closed", // Gunakan status resmi 'closed'
           merged_to: target_ticket_id,
           merge_reason: reason,
+          resolution: `Tiket digabung ke ${target_ticket_id}. Alasan: ${reason}`, // Catat disini
           closed_at: new Date(),
         })
         .in("id", source_ticket_ids)
@@ -1399,6 +1401,9 @@ v1Router.post(
       const initialStatus = itemData.approval_required
         ? "pending_approval"
         : "open";
+      const initialStage = itemData.approval_required
+        ? "approval_seksi"
+        : "triase";
 
       const ticketNumber = generateTicketNumber("request");
       const creationTime = new Date();
@@ -1437,6 +1442,7 @@ v1Router.post(
           reporter_id: req.user.id,
           reporter_nip: reporter?.nip,
           status: initialStatus,
+          stage: initialStage,
           priority: priorityCategory,
           ...slaData,
           reporter_attachment_url: attachment_url || null,
@@ -1652,6 +1658,89 @@ v1Router.put(
       });
     } catch (error) {
       console.error("Update request error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
+// Classify Service Request
+v1Router.put(
+  "/requests/:id/classify",
+  authenticate,
+  authorize("tickets.write"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { urgency, impact } = req.body;
+      const userId = req.user.id;
+
+      if (!urgency || !impact) {
+        return res
+          .status(400)
+          .json({ error: "Urgency dan impact harus diisi" });
+      }
+
+      const urgencyVal = parseInt(urgency);
+      const impactVal = parseInt(impact);
+
+      // Verify ticket existence and get necessary data for SLA calc
+      const { data: currentTicket, error: getError } = await supabase
+        .from("tickets")
+        .select("opd_id, created_at, type")
+        .eq("id", id)
+        .eq("type", "request")
+        .single();
+
+      if (getError || !currentTicket) {
+        return res.status(404).json({ error: "Service request tidak ditemukan" });
+      }
+
+      const { score: priorityScore, category: priorityCategory } =
+        calculatePriority(urgencyVal, impactVal);
+
+      // Recalculate SLA based on new priority
+      const slaDataRaw = await calculateBusinessSLA(
+        currentTicket.opd_id,
+        priorityCategory,
+        new Date(currentTicket.created_at)
+      );
+      
+      const slaData = slaDataRaw || {
+        sla_due: null,
+        sla_target_date: null,
+        sla_target_time: null,
+      };
+
+      const { data: updatedTicket, error: updateError } = await supabase
+        .from("tickets")
+        .update({
+          urgency: urgencyVal,
+          impact: impactVal,
+          priority: priorityCategory,
+          priority_score: priorityScore,
+          ...slaData,
+          updated_at: new Date(),
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      await logTicketActivity(
+        id,
+        userId,
+        "classify",
+        `Request diklasifikasi. Prioritas baru: ${priorityCategory} (U: ${urgencyVal}, I: ${impactVal})`
+      );
+
+      res.json({
+        success: true,
+        message: "Request berhasil diklasifikasi dan prioritas diperbarui",
+        ticket: updatedTicket,
+      });
+    } catch (error) {
+      console.error("Classify request error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
@@ -2558,6 +2647,34 @@ v1Router.get(
   }
 );
 
+// Get Technicians by OPD
+v1Router.get(
+  "/admin/opd/:id/technicians",
+  authenticate,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, username, full_name, email, phone, is_active")
+        .eq("opd_id", id)
+        .eq("role", "teknisi")
+        .eq("is_active", true);
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        data: data || [],
+      });
+    } catch (error) {
+      console.error("Get technicians error:", error);
+      res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+  }
+);
+
 // Update OPD Calendar
 v1Router.put(
   "/admin/opd/:id/calendar",
@@ -2848,18 +2965,26 @@ v1Router.post(
     try {
       const {
         update_number,
-        status_change,
+        status_change, // Contoh: 'in_progress', 'resolved'
+        stage_change, // BARU: 'execution', 'analysis', 'verification'
         reason,
         problem_detail,
         handling_description,
         final_solution,
       } = req.body;
 
+      // 1. Validasi Input Dasar
       if (!update_number || !status_change) {
         return res
           .status(400)
           .json({ error: "Update number dan status harus diisi" });
       }
+
+      // 2. Simpan Log Progress (History)
+      // Kita simpan stage di dalam teks handling_description agar tercatat di history
+      const logDescription = stage_change
+        ? `[Stage: ${stage_change}] ${handling_description || ""}`
+        : handling_description;
 
       const { data: progressUpdate, error } = await supabase
         .from("ticket_progress_updates")
@@ -2870,7 +2995,7 @@ v1Router.post(
           status_change,
           reason,
           problem_detail,
-          handling_description,
+          handling_description: logDescription,
           final_solution,
         })
         .select()
@@ -2878,53 +3003,73 @@ v1Router.post(
 
       if (error) throw error;
 
-      let dbStatus = null;
-      let updatePayload = { updated_at: new Date() };
+      // 3. Logic Update Status & Stage di Tabel Utama (Tickets)
+      let updatePayload = {
+        updated_at: new Date(),
+      };
 
-      const statusInput = status_change.toLowerCase();
-
-      if (
-        statusInput.includes("selesai") ||
-        statusInput.includes("ditutup") ||
-        statusInput === "resolved"
-      ) {
-        dbStatus = "resolved";
-        updatePayload.resolution = final_solution;
-        updatePayload.resolved_at = new Date();
-      } else if (
-        statusInput.includes("ditangani") ||
-        statusInput.includes("proses") ||
-        statusInput === "in_progress"
-      ) {
-        dbStatus = "in_progress";
-      } else if (statusInput === "closed") {
-        dbStatus = "closed";
-        updatePayload.closed_at = new Date();
+      // A. Update Stage (Jika dikirim frontend)
+      if (stage_change) {
+        updatePayload.stage = stage_change;
       }
 
-      if (dbStatus) {
-        updatePayload.status = dbStatus;
+      // B. Mapping Status (Agar sesuai constraint DB)
+      const statusInput = status_change.toLowerCase();
 
-        await supabase
+      if (["resolved", "selesai", "ditutup"].includes(statusInput)) {
+        updatePayload.status = "resolved";
+        updatePayload.resolution = final_solution;
+        updatePayload.resolved_at = new Date();
+        updatePayload.stage = "finished"; // Reset stage jika selesai
+      } else if (["closed"].includes(statusInput)) {
+        updatePayload.status = "closed";
+        updatePayload.closed_at = new Date();
+      } else if (
+        ["in_progress", "proses", "dikerjakan"].includes(statusInput)
+      ) {
+        updatePayload.status = "in_progress";
+        // Stage tetap sesuai kiriman frontend (misal: 'execution' atau 'analysis')
+      } else if (["assigned", "ditugaskan"].includes(statusInput)) {
+        updatePayload.status = "assigned";
+        // Stage bisa jadi 'verification' atau 'revision' tergantung frontend
+      } else if (["pending_approval", "menunggu"].includes(statusInput)) {
+        updatePayload.status = "pending_approval";
+      }
+
+      // C. Eksekusi Update ke Database
+      // Hanya update jika status valid terdeteksi
+      if (updatePayload.status) {
+        const { error: updateError } = await supabase
           .from("tickets")
           .update(updatePayload)
           .eq("id", req.params.id);
+
+        if (updateError) throw updateError;
       }
 
+      // 4. Log Activity System
       await logTicketActivity(
         req.params.id,
         req.user.id,
         "progress_update",
-        `Progress Update ${update_number}: ${status_change}`
+        `Update ${update_number}: ${status_change} ${
+          stage_change ? `(${stage_change})` : ""
+        }`
       );
 
       res.status(201).json({
         success: true,
-        message: "Progress update berhasil ditambahkan",
-        progress_update: progressUpdate,
+        message: "Progress update berhasil disimpan",
+        data: {
+          progress: progressUpdate,
+          current_state: {
+            status: updatePayload.status,
+            stage: updatePayload.stage,
+          },
+        },
       });
     } catch (error) {
-      console.error("Update progress error:", error);
+      console.error("Update incident progress error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }
@@ -2937,13 +3082,23 @@ v1Router.post(
   authorize("tickets.update_progress"),
   async (req, res) => {
     try {
-      const { update_number, status_change, notes } = req.body;
+      const {
+        update_number,
+        status_change,
+        stage_change, // BARU
+        notes,
+      } = req.body;
 
       if (!update_number || !status_change) {
         return res
           .status(400)
           .json({ error: "Update number dan status harus diisi" });
       }
+
+      // 1. Simpan Log
+      const logDescription = stage_change
+        ? `[Stage: ${stage_change}] ${notes || ""}`
+        : notes;
 
       const { data: progressUpdate, error } = await supabase
         .from("ticket_progress_updates")
@@ -2952,32 +3107,38 @@ v1Router.post(
           update_number: parseInt(update_number),
           updated_by: req.user.id,
           status_change,
-          handling_description: notes,
+          handling_description: logDescription,
         })
         .select()
         .single();
 
       if (error) throw error;
 
-      let dbStatus = null;
+      // 2. Update Status & Stage Utama
       let updatePayload = { updated_at: new Date() };
 
-      const statusInput = status_change.toLowerCase();
-
-      if (statusInput.includes("selesai") || statusInput === "resolved") {
-        dbStatus = "resolved";
-        updatePayload.resolved_at = new Date();
-      } else if (
-        statusInput.includes("proses") ||
-        statusInput.includes("dikerjakan") ||
-        statusInput === "in_progress"
-      ) {
-        dbStatus = "in_progress";
+      // A. Update Stage
+      if (stage_change) {
+        updatePayload.stage = stage_change;
       }
 
-      if (dbStatus) {
-        updatePayload.status = dbStatus;
+      // B. Mapping Status
+      const statusInput = status_change.toLowerCase();
 
+      if (["resolved", "selesai"].includes(statusInput)) {
+        updatePayload.status = "resolved";
+        updatePayload.resolved_at = new Date();
+        updatePayload.stage = "finished";
+      } else if (["in_progress", "proses"].includes(statusInput)) {
+        updatePayload.status = "in_progress";
+      } else if (["pending_approval"].includes(statusInput)) {
+        updatePayload.status = "pending_approval";
+      } else if (["assigned"].includes(statusInput)) {
+        updatePayload.status = "assigned";
+      }
+
+      // C. Eksekusi Update
+      if (updatePayload.status) {
         await supabase
           .from("tickets")
           .update(updatePayload)
@@ -2988,16 +3149,22 @@ v1Router.post(
         req.params.id,
         req.user.id,
         "progress_update",
-        `Progress Update ${update_number}: ${status_change}`
+        `Request Update ${update_number}: ${status_change}`
       );
 
       res.status(201).json({
         success: true,
-        message: "Progress update berhasil ditambahkan",
-        progress_update: progressUpdate,
+        message: "Progress request berhasil ditambahkan",
+        data: {
+          progress: progressUpdate,
+          current_state: {
+            status: updatePayload.status,
+            stage: updatePayload.stage,
+          },
+        },
       });
     } catch (error) {
-      console.error("Update progress error:", error);
+      console.error("Update request progress error:", error);
       res.status(500).json({ error: "Terjadi kesalahan server" });
     }
   }

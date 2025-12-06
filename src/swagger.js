@@ -104,7 +104,7 @@ const swaggerDefinition = {
       UserResponse: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
           username: { type: "string" },
           email: { type: "string" },
           full_name: { type: "string" },
@@ -153,7 +153,7 @@ const swaggerDefinition = {
           user: {
             type: "object",
             properties: {
-              id: { type: "string" },
+              id: { type: "integer" },
               username: { type: "string" },
               full_name: { type: "string" },
               email: { type: "string" },
@@ -265,9 +265,8 @@ const swaggerDefinition = {
             example: "Mohon dibuatkan email untuk pegawai baru.",
           },
           service_item_id: {
-            type: "string",
-            format: "uuid",
-            example: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+            type: "integer",
+            example: 1,
           },
           service_detail: {
             type: "object",
@@ -281,7 +280,7 @@ const swaggerDefinition = {
       TicketDetailResponse: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
           ticket_number: { type: "string", example: "INC-2023-1234" },
           type: { type: "string", enum: ["incident", "request"] },
           title: { type: "string" },
@@ -308,6 +307,11 @@ const swaggerDefinition = {
               "merged",
             ],
           },
+          stage: {
+            type: "string",
+            description: "Stage internal tiket (triase, verification, execution, etc.)",
+            example: "triase",
+          },
           verification_status: {
             type: "string",
             enum: ["pending", "verified", "rejected"],
@@ -323,6 +327,17 @@ const swaggerDefinition = {
           sla_due: { type: "string", format: "date-time" },
           created_at: { type: "string", format: "date-time" },
           updated_at: { type: "string", format: "date-time" },
+          // --- NEW FIELDS ---
+          merged_to: { 
+            type: "integer", 
+            nullable: true, 
+            description: "ID tiket target jika tiket ini digabung" 
+          },
+          merge_reason: { 
+            type: "string", 
+            nullable: true, 
+            description: "Alasan penggabungan tiket" 
+          },
           // Relations
           reporter: { $ref: "#/components/schemas/UserResponse" },
           recorder: { $ref: "#/components/schemas/UserResponse" },
@@ -330,7 +345,7 @@ const swaggerDefinition = {
           technician: { $ref: "#/components/schemas/UserResponse" },
           opd: { $ref: "#/components/schemas/OPDResponse" },
           bidang: { $ref: "#/components/schemas/BidangResponse" },
-          seksi: { $ref: "#/components/schemas/SeksiResponse" },
+seksi: { $ref: "#/components/schemas/SeksiResponse" },
           service_catalog: { $ref: "#/components/schemas/ServiceCatalogItem" },
           service_item: { $ref: "#/components/schemas/ServiceItem" },
           // Related data arrays
@@ -356,7 +371,7 @@ const swaggerDefinition = {
       TicketListResponse: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
           ticket_number: { type: "string", example: "INC-2023-1234" },
           title: { type: "string" },
           type: { type: "string", enum: ["incident", "request"] },
@@ -385,14 +400,14 @@ const swaggerDefinition = {
           reporter: {
             type: "object",
             properties: {
-              id: { type: "string" },
+              id: { type: "integer" },
               full_name: { type: "string" },
             },
           },
           technician: {
             type: "object",
             properties: {
-              id: { type: "string" },
+              id: { type: "integer" },
               full_name: { type: "string" },
             },
           },
@@ -405,7 +420,7 @@ const swaggerDefinition = {
       ProgressUpdate: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
           update_number: { type: "integer" },
           status_change: { type: "string" },
           reason: { type: "string" },
@@ -419,7 +434,7 @@ const swaggerDefinition = {
       TicketComment: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
           content: { type: "string" },
           is_internal: { type: "boolean" },
           user: { $ref: "#/components/schemas/UserResponse" },
@@ -429,9 +444,9 @@ const swaggerDefinition = {
       TicketLog: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
-          ticket_id: { type: "string", format: "uuid" },
-          user_id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
+          ticket_id: { type: "integer" },
+          user_id: { type: "integer" },
           action: { type: "string" },
           description: { type: "string" },
           user: {
@@ -447,12 +462,12 @@ const swaggerDefinition = {
       ApprovalWorkflow: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
-          ticket_id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
+          ticket_id: { type: "integer" },
           workflow_level: { type: "integer" },
           approver_role: { type: "string" },
           status: { type: "string", enum: ["pending", "approved", "rejected"] },
-          approver_id: { type: "string", format: "uuid" },
+          approver_id: { type: "integer" },
           notes: { type: "string" },
           responded_at: { type: "string", format: "date-time" },
         },
@@ -469,6 +484,11 @@ const swaggerDefinition = {
             example: "Sedang ditangani",
             description:
               "Label status yang akan muncul di riwayat (misal: 'Sedang ditangani', 'Selesai')",
+          },
+          stage_change: {
+            type: "string",
+            example: "execution",
+            description: "Perubahan stage internal tiket",
           },
           reason: { type: "string", example: "Sedang dikerjakan teknisi" },
           problem_detail: { type: "string" },
@@ -522,7 +542,7 @@ const swaggerDefinition = {
       KBArticle: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
           title: { type: "string" },
           content: { type: "string" },
           category: { type: "string" },
@@ -550,7 +570,7 @@ const swaggerDefinition = {
       ServiceCatalogItem: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
           name: { type: "string" },
           icon: { type: "string" },
           isReadOnly: { type: "boolean" },
@@ -559,7 +579,7 @@ const swaggerDefinition = {
             items: {
               type: "object",
               properties: {
-                id: { type: "string", format: "uuid" },
+                id: { type: "integer" },
                 name: { type: "string" },
                 needAsset: { type: "boolean" },
                 workflow: { type: "string" },
@@ -575,7 +595,7 @@ const swaggerDefinition = {
       ServiceItem: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
           name: { type: "string" },
           desc: { type: "string" },
           needAsset: { type: "boolean" },
@@ -635,6 +655,18 @@ const swaggerDefinition = {
         properties: {
           id: { type: "integer" },
           name: { type: "string" },
+        },
+      },
+      // --- NEW SCHEMA FOR TECHNICIANS ---
+      TechnicianSimpleResponse: {
+        type: "object",
+        properties: {
+          id: { type: "integer" },
+          username: { type: "string" },
+          full_name: { type: "string" },
+          email: { type: "string" },
+          phone: { type: "string" },
+          is_active: { type: "boolean" },
         },
       },
       PublicTicketTrackResponse: {
@@ -720,7 +752,7 @@ const swaggerDefinition = {
                   type: "object",
                   properties: {
                     local_id: { type: "string" },
-                    server_id: { type: "string", format: "uuid" },
+                    server_id: { type: "integer" },
                     ticket_number: { type: "string" },
                   },
                 },
@@ -731,7 +763,7 @@ const swaggerDefinition = {
                   type: "object",
                   properties: {
                     local_id: { type: "string" },
-                    server_id: { type: "string", format: "uuid" },
+                    server_id: { type: "integer" },
                   },
                 },
               },
@@ -762,7 +794,7 @@ const swaggerDefinition = {
           asset: {
             type: "object",
             properties: {
-              id: { type: "string", format: "uuid" },
+              id: { type: "integer" },
               name: { type: "string" },
               type: { type: "string" },
               location: { type: "string" },
@@ -774,9 +806,9 @@ const swaggerDefinition = {
       AuditLogResponse: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
-          ticket_id: { type: "string", format: "uuid" },
-          user_id: { type: "string", format: "uuid" },
+          id: { type: "integer" },
+          ticket_id: { type: "integer" },
+          user_id: { type: "integer" },
           action: { type: "string" },
           description: { type: "string" },
           user: { $ref: "#/components/schemas/UserResponse" },
@@ -1337,7 +1369,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         responses: {
@@ -1390,7 +1422,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -1406,7 +1438,7 @@ const swaggerDefinition = {
                     type: "string",
                     enum: ["open", "in_progress", "resolved", "closed"],
                   },
-                  assigned_to: { type: "string", format: "uuid" },
+                  assigned_to: { type: "integer" },
                   verification_status: {
                     type: "string",
                     enum: ["pending", "verified", "rejected"],
@@ -1440,7 +1472,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -1500,7 +1532,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -1520,8 +1552,18 @@ const swaggerDefinition = {
                   properties: {
                     success: { type: "boolean" },
                     message: { type: "string" },
-                    progress_update: {
-                      $ref: "#/components/schemas/ProgressUpdate",
+                    data: {
+                      type: "object",
+                      properties: {
+                        progress: { $ref: "#/components/schemas/ProgressUpdate" },
+                        current_state: {
+                          type: "object",
+                          properties: {
+                            status: { type: "string" },
+                            stage: { type: "string" },
+                          },
+                        },
+                      },
                     },
                   },
                 },
@@ -1543,7 +1585,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -1588,9 +1630,9 @@ const swaggerDefinition = {
                 properties: {
                   source_ticket_ids: {
                     type: "array",
-                    items: { type: "string", format: "uuid" },
+                    items: { type: "integer" },
                   },
-                  target_ticket_id: { type: "string", format: "uuid" },
+                  target_ticket_id: { type: "integer" },
                   reason: { type: "string" },
                 },
               },
@@ -1865,7 +1907,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         responses: {
@@ -1921,7 +1963,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -1958,6 +2000,67 @@ const swaggerDefinition = {
         },
       },
     },
+    // --- NEW ENDPOINT ---
+    "/requests/{id}/classify": {
+      put: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Classify Service Request (Set Priority)",
+        description:
+          "Digunakan oleh staff untuk menentukan urgensi dan dampak pada permintaan layanan. Sistem akan otomatis menghitung ulang prioritas dan SLA.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["urgency", "impact"],
+                properties: {
+                  urgency: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 5,
+                    example: 3,
+                  },
+                  impact: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 5,
+                    example: 3,
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Request berhasil diklasifikasi dan prioritas diperbarui",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    ticket: {
+                      $ref: "#/components/schemas/TicketDetailResponse",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     "/requests/{id}/approve": {
       post: {
         tags: ["Service Requests"],
@@ -1970,7 +2073,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -2034,7 +2137,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -2081,63 +2184,6 @@ const swaggerDefinition = {
         },
       },
     },
-    "/requests/{id}/progress": {
-      post: {
-        tags: ["Service Requests"],
-        security: [{ bearerAuth: [] }],
-        summary: "Add Progress Update",
-        description:
-          "Menambahkan pembaruan progress pada tiket permintaan layanan.",
-        parameters: [
-          {
-            name: "id",
-            in: "path",
-            required: true,
-            schema: { type: "string", format: "uuid" },
-          },
-        ],
-        requestBody: {
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["update_number", "status_change"],
-                properties: {
-                  update_number: { type: "integer", example: 1 },
-                  status_change: {
-                    type: "string",
-                    example: "Sedang dikerjakan",
-                  },
-                  notes: {
-                    type: "string",
-                    description: "Catatan atau deskripsi pembaruan",
-                  },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          201: {
-            description: "Progress berhasil ditambahkan",
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    success: { type: "boolean" },
-                    message: { type: "string" },
-                    progress_update: {
-                      $ref: "#/components/schemas/ProgressUpdate",
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
     "/requests/{id}/comments": {
       post: {
         tags: ["Service Requests"],
@@ -2150,7 +2196,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -2317,7 +2363,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         responses: {
@@ -2355,7 +2401,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -2395,7 +2441,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         responses: {
@@ -2667,7 +2713,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -2740,6 +2786,42 @@ const swaggerDefinition = {
         },
       },
     },
+    "/admin/opd/{id}/technicians": {
+      get: {
+        tags: ["Admin"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Technicians by OPD",
+        description: "Mengambil daftar teknisi aktif dari OPD tertentu.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            description: "ID dari OPD",
+            schema: { type: "integer" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Daftar teknisi OPD",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/TechnicianSimpleResponse" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     "/admin/opd/{id}/calendar": {
       put: {
         tags: ["Admin"],
@@ -2798,7 +2880,7 @@ const swaggerDefinition = {
             name: "id",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
         ],
         requestBody: {
@@ -2897,7 +2979,7 @@ const swaggerDefinition = {
           {
             name: "user_id",
             in: "query",
-            schema: { type: "string", format: "uuid" },
+            schema: { type: "integer" },
           },
           { name: "action", in: "query", schema: { type: "string" } },
           {
