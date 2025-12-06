@@ -1972,7 +1972,7 @@ v1Router.get("/search", authenticate, async (req, res) => {
     // Search KB
     if (!type || type === "kb") {
       const { data: articles, count: kbCount } = await supabase
-        .from("knowledge_base")
+        .from("o_knowledge_base")
         .select("id, title, category, created_at", { count: "exact" })
         .eq("status", "published")
         .or(`title.ilike.%${q}%,content.ilike.%${q}%`)
@@ -3021,9 +3021,323 @@ v1Router.get(
     }
   }
 );
-
 // ===========================================
-// 18. ERROR HANDLING
+// 18. KNOWLEDGE BASE ROUTES (UPDATED FROM VIBER EXPRESS)
+// ===========================================
+// NOTE: Menggunakan tabel 'o_knowledge_base' sesuai struktur baru
+// Endpoint ini menggantikan implementasi KB lama yang sederhana.
+
+// Get All KB (With Filters)
+v1Router.get("/knowledge-base", authenticate, async (req, res) => {
+  try {
+    const { active, category, search } = req.query;
+    let query = supabase
+      .from("o_knowledge_base")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (search) {
+        query = query.or(`judul_kb.ilike.%${search}%,deskripsi_kb.ilike.%${search}%`);
+    } 
+    
+    if (category) {
+        query = query.eq("kategori_kb", category);
+    }
+    
+    if (active === "true") {
+        query = query.eq("is_active", 1);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    res.status(200).json({ status: true, data });
+  } catch (error) {
+    res.status(500).json({ status: false, error: error.message });
+  }
+});
+
+// Get KB by ID
+v1Router.get("/knowledge-base/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await supabase
+      .from("o_knowledge_base")
+      .select("*")
+      .eq("id_kb", id)
+      .single();
+
+    if (error) throw error;
+    if (!data) {
+      return res.status(404).json({ status: false, error: "Knowledge base tidak ditemukan" });
+    }
+
+    res.status(200).json({ status: true, data });
+  } catch (error) {
+    res.status(500).json({ status: false, error: error.message });
+  }
+});
+
+// Create KB (Protected)
+v1Router.post("/knowledge-base", authenticate, authorize("kb.write"), async (req, res) => {
+  try {
+    const { judul_kb, kategori_kb, deskripsi_kb } = req.body;
+
+    if (!judul_kb || !deskripsi_kb) {
+      return res.status(400).json({ status: false, error: "Judul dan deskripsi wajib diisi" });
+    }
+
+    const { data, error } = await supabase
+      .from("o_knowledge_base")
+      .insert({
+        judul_kb,
+        kategori_kb,
+        deskripsi_kb,
+        created_by: req.user.id,
+        is_active: 1
+      })
+      .select("*")
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      status: true,
+      message: "Knowledge base berhasil dibuat",
+      data
+    });
+  } catch (error) {
+    res.status(500).json({ status: false, error: error.message });
+  }
+});
+
+// Update KB
+v1Router.put("/knowledge-base/:id", authenticate, authorize("kb.write"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { judul_kb, kategori_kb, deskripsi_kb, is_active } = req.body;
+
+    const updateData = {
+      updated_at: new Date().toISOString(),
+      updated_by: req.user.id
+    };
+
+    if (judul_kb !== undefined) updateData.judul_kb = judul_kb;
+    if (kategori_kb !== undefined) updateData.kategori_kb = kategori_kb;
+    if (deskripsi_kb !== undefined) updateData.deskripsi_kb = deskripsi_kb;
+    if (is_active !== undefined) updateData.is_active = is_active;
+
+    const { data, error } = await supabase
+      .from("o_knowledge_base")
+      .update(updateData)
+      .eq("id_kb", id)
+      .select("*")
+      .single();
+
+    if (error) throw error;
+
+    res.status(200).json({
+      status: true,
+      message: "Knowledge base berhasil diupdate",
+      data
+    });
+  } catch (error) {
+    res.status(500).json({ status: false, error: error.message });
+  }
+});
+
+// Soft Delete KB (Deactivate)
+v1Router.patch("/knowledge-base/:id/deactivate", authenticate, authorize("kb.write"), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { data, error } = await supabase
+            .from("o_knowledge_base")
+            .update({
+                is_active: 0,
+                updated_by: req.user.id,
+                updated_at: new Date().toISOString()
+            })
+            .eq("id_kb", id)
+            .select("*")
+            .single();
+
+        if (error) throw error;
+
+        res.status(200).json({
+            status: true,
+            message: "Knowledge base berhasil dinonaktifkan",
+            data
+        });
+    } catch (error) {
+        res.status(500).json({ status: false, error: error.message });
+    }
+});
+
+// Hard Delete KB
+v1Router.delete("/knowledge-base/:id", authenticate, authorize("kb.write"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabase
+      .from("o_knowledge_base")
+      .delete()
+      .eq("id_kb", id);
+
+    if (error) throw error;
+
+    res.status(200).json({
+      status: true,
+      message: "Knowledge base berhasil dihapus permanen"
+    });
+  } catch (error) {
+    res.status(500).json({ status: false, error: error.message });
+  }
+});
+// ===========================================
+// 19. SURVEY ROUTES (NEW FROM VIBER EXPRESS)
+// ===========================================
+// NOTE: Menggunakan tabel 'o_ticket_surveys' sesuai struktur baru
+// Get All Surveys (Admin Only)
+v1Router.get("/surveys", authenticate, authorize("reports.read"), async (req, res) => {
+  try {
+    // Ambil semua surveys
+    const { data: surveysData, error: surveysError } = await supabase
+      .from("o_ticket_surveys")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (surveysError) throw surveysError;
+
+    // Fetch data tiket terkait untuk detail
+    if (surveysData && surveysData.length > 0) {
+        const ticketIds = surveysData.map(s => s.ticket_id);
+        const { data: ticketData } = await supabase.from("tickets").select("*").in("id", ticketIds);
+        
+        // Join manual
+        const result = surveysData.map(survey => {
+            const ticket = ticketData ? ticketData.find(t => t.id === survey.ticket_id) : null;
+            return { ...survey, ticket: ticket || null };
+        });
+        return res.status(200).json({ status: true, data: result });
+    }
+
+    res.status(200).json({ status: true, data: surveysData });
+  } catch (err) {
+    res.status(500).json({ status: false, error: err.message });
+  }
+});
+
+// Get My Surveys
+v1Router.get("/surveys/my-surveys", authenticate, async (req, res) => {
+  try {
+    const { data: surveys, error } = await supabase
+        .from("o_ticket_surveys")
+        .select("*")
+        .eq("created_by", req.user.id)
+        .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    // Optional: Join with tickets details if needed
+    if (surveys && surveys.length > 0) {
+        const ticketIds = surveys.map(s => s.ticket_id).filter(Boolean);
+        if (ticketIds.length > 0) {
+            const { data: tickets } = await supabase.from("tickets").select("*").in("id", ticketIds);
+            surveys.forEach(survey => {
+                survey.ticket = tickets?.find(t => t.id === survey.ticket_id) || null;
+            });
+        }
+    }
+    
+    res.json({ success: true, data: surveys });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check if user already submitted survey for ticket
+v1Router.get("/surveys/check/:ticket_id", authenticate, async (req, res) => {
+    try {
+      const { ticket_id } = req.params;
+      const { data } = await supabase
+        .from("o_ticket_surveys")
+        .select("id_surveys")
+        .eq("ticket_id", ticket_id)
+        .maybeSingle();
+      
+      res.json({ success: true, hasSurvey: data !== null });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+});
+
+// Get Survey By ID
+v1Router.get("/surveys/:id", authenticate, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { data: survey, error } = await supabase
+            .from("o_ticket_surveys")
+            .select("*")
+            .eq("id_surveys", id)
+            .single();
+
+        if (error) throw error;
+        if (!survey) {
+            return res.status(404).json({ status: false, error: "Survey tidak ditemukan" });
+        }
+        
+        // Fetch ticket detail
+        if (survey.ticket_id) {
+            const { data: ticket } = await supabase.from("tickets").select("*").eq("id", survey.ticket_id).single();
+            survey.ticket = ticket || null;
+        }
+
+        res.json({ status: true, data: survey });
+    } catch (error) {
+        res.status(500).json({ status: false, error: error.message });
+    }
+});
+
+// Submit Survey
+v1Router.post("/surveys", authenticate, async (req, res) => {
+    try {
+      const { ticket_id, rating, feedback, category } = req.body;
+      
+      // Check existing
+      const { data: existing } = await supabase
+        .from("o_ticket_surveys")
+        .select("id_surveys")
+        .eq("ticket_id", ticket_id)
+        .maybeSingle();
+
+      if (existing) {
+          return res.status(400).json({ error: "Tiket ini sudah memiliki survey" });
+      }
+      
+      const { data: survey, error } = await supabase
+        .from("o_ticket_surveys")
+        .insert({
+          ticket_id: ticket_id,
+          created_by: req.user.id,
+          rating,
+          feedback,
+          category
+        })
+        .select("*")
+        .single();
+
+      if (error) throw error;
+      
+      res.status(201).json({ 
+        success: true, 
+        message: "Survey berhasil disubmit",
+        data: survey 
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+});
+// ===========================================
+// 20. ERROR HANDLING
 // ===========================================
 // 404 Handler
 app.use((req, res) => {
@@ -3054,7 +3368,7 @@ app.use((err, req, res, next) => {
 });
 
 // ===========================================
-// 19. SERVER START
+// 21. SERVER START
 // ===========================================
 app.listen(PORT, () => {
   console.log(`
@@ -3080,7 +3394,7 @@ API Documentation: http://localhost:${PORT}/api-docs
 });
 
 // ===========================================
-// 20. GRACEFUL SHUTDOWN
+// 22. GRACEFUL SHUTDOWN
 // ===========================================
 process.on("SIGTERM", () => {
   console.log("SIGTERM received, shutting down gracefully...");

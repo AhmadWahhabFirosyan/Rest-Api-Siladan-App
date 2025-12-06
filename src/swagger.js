@@ -6,7 +6,7 @@ const swaggerDefinition = {
     title: "SILADAN APP API",
     version: "2.0.0",
     description:
-      "Dokumentasi API lengkap untuk sistem Service Desk. API ini mengelola insiden, permintaan layanan, basis pengetahuan, dan pengguna. Semua response dibungkus dalam format standar JSON.",
+      "Dokumentasi API lengkap untuk sistem Service Desk versi 2.0. API ini mengelola insiden, permintaan layanan, basis pengetahuan, survei, dan pengguna. Semua response dibungkus dalam format standar JSON.",
     contact: {
       name: "Contact Developer Ganteng",
       url: "http://wa.me/+6281357571468",
@@ -327,7 +327,6 @@ const swaggerDefinition = {
           sla_due: { type: "string", format: "date-time" },
           created_at: { type: "string", format: "date-time" },
           updated_at: { type: "string", format: "date-time" },
-          // --- NEW FIELDS ---
           merged_to: { 
             type: "integer", 
             nullable: true, 
@@ -345,7 +344,7 @@ const swaggerDefinition = {
           technician: { $ref: "#/components/schemas/UserResponse" },
           opd: { $ref: "#/components/schemas/OPDResponse" },
           bidang: { $ref: "#/components/schemas/BidangResponse" },
-seksi: { $ref: "#/components/schemas/SeksiResponse" },
+          seksi: { $ref: "#/components/schemas/SeksiResponse" },
           service_catalog: { $ref: "#/components/schemas/ServiceCatalogItem" },
           service_item: { $ref: "#/components/schemas/ServiceItem" },
           // Related data arrays
@@ -520,39 +519,57 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         },
       },
 
-      // --- KNOWLEDGE BASE ---
-      ArticleInput: {
+      // --- KNOWLEDGE BASE (UPDATED) ---
+      KBArticleV2: {
         type: "object",
-        required: ["title", "content"],
         properties: {
-          title: { type: "string", example: "Cara Mengatasi Printer Error" },
-          content: {
+          id_kb: { type: "integer" },
+          judul_kb: { type: "string" },
+          kategori_kb: { type: "string" },
+          deskripsi_kb: { type: "string" },
+          is_active: { type: "integer" }, // 1 for active, 0 for inactive
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" },
+          created_by: { type: "integer" },
+          updated_by: { type: "integer" },
+        },
+      },
+      KBArticleV2Input: {
+        type: "object",
+        required: ["judul_kb", "deskripsi_kb"],
+        properties: {
+          judul_kb: { type: "string", example: "Cara Mengatasi Printer Error" },
+          kategori_kb: { type: "string", example: "Hardware" },
+          deskripsi_kb: {
             type: "string",
             example: "<p>Langkah 1: Cek kabel...</p>",
           },
-          category: { type: "string", example: "Hardware" },
-          tags: {
-            type: "array",
-            items: { type: "string" },
-            example: ["printer", "error", "guide"],
-          },
-          opd_id: { type: "integer" },
+          is_active: { type: "integer" },
         },
       },
-      KBArticle: {
+
+      // --- SURVEYS (NEW) ---
+      TicketSurvey: {
         type: "object",
         properties: {
-          id: { type: "integer" },
-          title: { type: "string" },
-          content: { type: "string" },
+          id_surveys: { type: "integer" },
+          ticket_id: { type: "integer" },
+          rating: { type: "integer" },
+          feedback: { type: "string" },
           category: { type: "string" },
-          tags: { type: "array", items: { type: "string" } },
-          view_count: { type: "integer" },
-          status: { type: "string", enum: ["draft", "published"] },
-          author: { $ref: "#/components/schemas/UserResponse" },
-          opd: { $ref: "#/components/schemas/OPDResponse" },
           created_at: { type: "string", format: "date-time" },
-          updated_at: { type: "string", format: "date-time" },
+          created_by: { type: "integer" },
+          ticket: { $ref: "#/components/schemas/TicketListResponse" }
+        },
+      },
+      TicketSurveyInput: {
+        type: "object",
+        required: ["ticket_id", "rating"],
+        properties: {
+          ticket_id: { type: "integer" },
+          rating: { type: "integer", example: 5 },
+          feedback: { type: "string", example: "Pelayanan sangat memuaskan" },
+          category: { type: "string", example: "Service Quality" },
         },
       },
 
@@ -657,7 +674,6 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
           name: { type: "string" },
         },
       },
-      // --- NEW SCHEMA FOR TECHNICIANS ---
       TechnicianSimpleResponse: {
         type: "object",
         properties: {
@@ -729,7 +745,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
                 properties: {
                   data: {
                     type: "array",
-                    items: { $ref: "#/components/schemas/KBArticle" },
+                    items: { $ref: "#/components/schemas/KBArticleV2" },
                   },
                   count: { type: "integer" },
                 },
@@ -883,7 +899,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
                         message: {
                           type: "string",
                           example:
-                            "Welcome to Service Desk API v2.0 (SSO Enabled)",
+                            "Welcome to Siladan App API",
                         },
                         version: { type: "string", example: "2.0.0" },
                       },
@@ -1899,7 +1915,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
       get: {
         tags: ["Service Requests"],
         security: [{ bearerAuth: [] }],
-        summary: "Get Request Detail",
+        summary: "Get Service Request Detail",
         description:
           "Mengambil detail permintaan layanan beserta alur approval dan riwayatnya.",
         parameters: [
@@ -2000,7 +2016,6 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         },
       },
     },
-    // --- NEW ENDPOINT ---
     "/requests/{id}/classify": {
       put: {
         tags: ["Service Requests"],
@@ -2225,40 +2240,88 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         },
       },
     },
+    "/requests/{id}/progress": {
+      post: {
+        tags: ["Service Requests"],
+        security: [{ bearerAuth: [] }],
+        summary: "Add Progress Update",
+        description:
+          "Menambahkan pembaruan progress pada tiket permintaan layanan.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ProgressUpdateInput" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Progress request berhasil ditambahkan",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                    data: {
+                      type: "object",
+                      properties: {
+                        progress: { $ref: "#/components/schemas/ProgressUpdate" },
+                        current_state: {
+                          type: "object",
+                          properties: {
+                            status: { type: "string" },
+                            stage: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
 
     // ==========================================
     // 5. KNOWLEDGE BASE
     // ==========================================
-    "/kb": {
+    "/knowledge-base": {
       get: {
         tags: ["Knowledge Base"],
         security: [{ bearerAuth: [] }],
-        summary: "List Articles",
+        summary: "List Knowledge Base Articles",
         description:
-          "Mengambil daftar artikel basis pengetahuan. Secara default hanya menampilkan artikel yang sudah dipublikasi.",
+          "Mengambil daftar artikel basis pengetahuan dengan filter.",
         parameters: [
+          {
+            name: "active",
+            in: "query",
+            schema: { type: "boolean" },
+            description: "Filter untuk artikel aktif (true/false)",
+          },
+          {
+            name: "category",
+            in: "query",
+            schema: { type: "string" },
+            description: "Filter berdasarkan kategori",
+          },
           {
             name: "search",
             in: "query",
             schema: { type: "string" },
-            description: "Pencarian di judul dan konten",
-          },
-          { name: "category", in: "query", schema: { type: "string" } },
-          {
-            name: "status",
-            in: "query",
-            schema: { type: "string", enum: ["draft", "published"] },
-            description: "Jika kosong, default 'published'",
-          },
-          {
-            name: "page",
-            in: "query",
-            schema: { type: "integer", default: 1 },
-          },
-          {
-            name: "limit",
-            in: "query",
-            schema: { type: "integer", default: 20 },
+            description: "Pencarian di judul dan deskripsi",
           },
         ],
         responses: {
@@ -2269,12 +2332,11 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
                 schema: {
                   type: "object",
                   properties: {
-                    success: { type: "boolean" },
+                    status: { type: "boolean" },
                     data: {
                       type: "array",
-                      items: { $ref: "#/components/schemas/KBArticle" },
+                      items: { $ref: "#/components/schemas/KBArticleV2" },
                     },
-                    pagination: { $ref: "#/components/schemas/PaginationInfo" },
                   },
                 },
               },
@@ -2285,79 +2347,49 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
       post: {
         tags: ["Knowledge Base"],
         security: [{ bearerAuth: [] }],
-        summary: "Create Article",
+        summary: "Create Knowledge Base Article",
         description:
-          "Membuat artikel baru. Artikel baru akan memiliki status 'draft'.",
+          "Membuat artikel baru di basis pengetahuan. Memerlukan izin `kb.write`.",
         requestBody: {
           content: {
             "application/json": {
-              schema: { $ref: "#/components/schemas/ArticleInput" },
+              schema: { $ref: "#/components/schemas/KBArticleV2Input" },
             },
           },
         },
         responses: {
           201: {
-            description: "Artikel berhasil dibuat (draft)",
+            description: "Artikel berhasil dibuat",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
-                    success: { type: "boolean" },
+                    status: { type: "boolean" },
                     message: { type: "string" },
-                    article: { $ref: "#/components/schemas/KBArticle" },
+                    data: { $ref: "#/components/schemas/KBArticleV2" },
                   },
                 },
               },
             },
           },
-        },
-      },
-    },
-    "/kb/suggest": {
-      get: {
-        tags: ["Knowledge Base"],
-        security: [{ bearerAuth: [] }],
-        summary: "Suggest Articles",
-        description:
-          "Memberikan saran artikel yang relevan berdasarkan query. Digunakan untuk fitur auto-complete.",
-        parameters: [
-          {
-            name: "query",
-            in: "query",
-            required: true,
-            schema: { type: "string" },
-          },
-        ],
-        responses: {
-          200: {
-            description: "Daftar saran artikel",
+          400: {
+            description: "Data tidak valid",
             content: {
               "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    success: { type: "boolean" },
-                    count: { type: "integer" },
-                    suggestions: {
-                      type: "array",
-                      items: { $ref: "#/components/schemas/KBArticle" },
-                    },
-                  },
-                },
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
               },
             },
           },
         },
       },
     },
-    "/kb/{id}": {
+    "/knowledge-base/{id}": {
       get: {
         tags: ["Knowledge Base"],
         security: [{ bearerAuth: [] }],
-        summary: "Get Article Detail",
-        description:
-          "Mengambil detail dan konten lengkap sebuah artikel. Jumlah view akan bertambah.",
+        summary: "Get Knowledge Base Article by ID",
+        description: "Mengambil detail satu artikel berdasarkan ID.",
         parameters: [
           {
             name: "id",
@@ -2368,14 +2400,14 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         ],
         responses: {
           200: {
-            description: "Detail artikel",
+            description: "Detail artikel KB",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
-                    success: { type: "boolean" },
-                    article: { $ref: "#/components/schemas/KBArticle" },
+                    status: { type: "boolean" },
+                    data: { $ref: "#/components/schemas/KBArticleV2" },
                   },
                 },
               },
@@ -2394,8 +2426,9 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
       put: {
         tags: ["Knowledge Base"],
         security: [{ bearerAuth: [] }],
-        summary: "Update Article",
-        description: "Memperbarui data artikel (judul, konten, kategori, dll).",
+        summary: "Update Knowledge Base Article",
+        description:
+          "Memperbarui artikel yang ada. Memerlukan izin `kb.write`.",
         parameters: [
           {
             name: "id",
@@ -2407,16 +2440,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         requestBody: {
           content: {
             "application/json": {
-              schema: {
-                type: "object",
-                properties: {
-                  title: { type: "string" },
-                  content: { type: "string" },
-                  category: { type: "string" },
-                  tags: { type: "array", items: { type: "string" } },
-                  status: { type: "string", enum: ["draft", "published"] },
-                },
-              },
+              schema: { $ref: "#/components/schemas/KBArticleV2Input" },
             },
           },
         },
@@ -2425,17 +2449,61 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
             description: "Artikel berhasil diperbarui",
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/SuccessResponse" },
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "boolean" },
+                    message: { type: "string" },
+                    data: { $ref: "#/components/schemas/KBArticleV2" },
+                  },
+                },
               },
             },
           },
         },
       },
+    },
+    "/knowledge-base/{id}/deactivate": {
+      patch: {
+        tags: ["Knowledge Base"],
+        security: [{ bearerAuth: [] }],
+        summary: "Deactivate Knowledge Base Article",
+        description:
+          "Menonaktifkan artikel (soft delete). Memerlukan izin `kb.write`.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Artikel berhasil dinonaktifkan",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "boolean" },
+                    message: { type: "string" },
+                    data: { $ref: "#/components/schemas/KBArticleV2" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/knowledge-base/{id}": {
       delete: {
         tags: ["Knowledge Base"],
         security: [{ bearerAuth: [] }],
-        summary: "Delete Article",
-        description: "Menghapus artikel secara permanen.",
+        summary: "Delete Knowledge Base Article",
+        description:
+          "Menghapus artikel secara permanen. Memerlukan izin `kb.write`.",
         parameters: [
           {
             name: "id",
@@ -2449,12 +2517,182 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
             description: "Artikel berhasil dihapus",
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/SuccessResponse" },
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "boolean" },
+                    message: { type: "string", example: "Knowledge base berhasil dihapus permanen" }
+                  },
+                },
               },
             },
           },
-          403: {
-            description: "Anda tidak memiliki izin menghapus artikel",
+        },
+      },
+    },
+
+    // ==========================================
+    // 6. SURVEYS
+    // ==========================================
+    "/surveys": {
+      get: {
+        tags: ["Surveys"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get All Surveys (Admin)",
+        description:
+          "Mengambil semua data survei tiket. Memerlukan izin `reports.read`.",
+        responses: {
+          200: {
+            description: "Daftar semua survei",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/TicketSurvey" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Surveys"],
+        security: [{ bearerAuth: [] }],
+        summary: "Submit Survey",
+        description:
+          "Mengirimkan survei untuk tiket yang telah selesai.",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/TicketSurveyInput" },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: "Survey berhasil disubmit",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string", example: "Survey berhasil disubmit" },
+                    data: { $ref: "#/components/schemas/TicketSurvey" }
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: "Data tidak valid atau survey untuk tiket ini sudah ada",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/surveys/my-surveys": {
+      get: {
+        tags: ["Surveys"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get My Surveys",
+        description:
+          "Mengambil daftar survei yang diajukan oleh pengguna yang sedang login.",
+        responses: {
+          200: {
+            description: "Daftar survei pengguna",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/TicketSurvey" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/surveys/check/{ticket_id}": {
+      get: {
+        tags: ["Surveys"],
+        security: [{ bearerAuth: [] }],
+        summary: "Check if Survey Exists for Ticket",
+        description:
+          "Memeriksa apakah sebuah tiket sudah memiliki survei atau belum.",
+        parameters: [
+          {
+            name: "ticket_id",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Status pemeriksaan survei",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    hasSurvey: { type: "boolean" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/surveys/{id}": {
+      get: {
+        tags: ["Surveys"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get Survey by ID",
+        description: "Mengambil detail satu survei berdasarkan ID.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        responses: {
+          200: {
+            description: "Detail survei",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "boolean" },
+                    data: { $ref: "#/components/schemas/TicketSurvey" },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: "Survey tidak ditemukan",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -2466,7 +2704,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
     },
 
     // ==========================================
-    // 6. ADMIN OPERATIONS
+    // 7. ADMIN OPERATIONS
     // ==========================================
     "/admin/roles": {
       get: {
@@ -2474,7 +2712,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         security: [{ bearerAuth: [] }],
         summary: "List RBAC Roles",
         description:
-          "Mengambil daftar role dan permission yang tersimpan di database.",
+          "Mengambil daftar role dan permission yang tersimpan di database. Memerlukan izin `rbac.manage`.",
         responses: {
           200: {
             description: "Daftar Role",
@@ -2499,7 +2737,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         tags: ["Admin"],
         security: [{ bearerAuth: [] }],
         summary: "Create Custom Role",
-        description: "Membuat role baru secara dinamis.",
+        description: "Membuat role baru secara dinamis. Memerlukan izin `rbac.manage`.",
         requestBody: {
           content: {
             "application/json": {
@@ -2540,6 +2778,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         tags: ["Admin"],
         security: [{ bearerAuth: [] }],
         summary: "Update Role Permissions",
+        description: "Memperbarui permission dan deskripsi role. Memerlukan izin `rbac.manage`.",
         parameters: [
           {
             name: "id",
@@ -2579,7 +2818,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         tags: ["Admin"],
         security: [{ bearerAuth: [] }],
         summary: "Delete Role",
-        description: "Role sistem (bawaan) tidak bisa dihapus.",
+        description: "Menghapus role kustom. Role sistem (bawaan) tidak bisa dihapus. Memerlukan izin `rbac.manage`.",
         parameters: [
           {
             name: "id",
@@ -2597,6 +2836,14 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
               },
             },
           },
+          403: {
+            description: "Role sistem tidak dapat dihapus",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
         },
       },
     },
@@ -2607,7 +2854,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         security: [{ bearerAuth: [] }],
         summary: "List Users",
         description:
-          "Mengambil daftar semua pengguna sistem, dengan filter role dan OPD.",
+          "Mengambil daftar semua pengguna sistem, dengan filter role dan OPD. Memerlukan izin `users.read`.",
         parameters: [
           {
             name: "role",
@@ -2666,7 +2913,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         security: [{ bearerAuth: [] }],
         summary: "Create User (Admin)",
         description:
-          "Membuat pengguna baru oleh admin. Role dan OPD dapat ditentukan.",
+          "Membuat pengguna baru oleh admin. Role dan OPD dapat ditentukan. Memerlukan izin `users.write`.",
         requestBody: {
           content: {
             "application/json": {
@@ -2680,12 +2927,19 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
             content: {
               "application/json": {
                 schema: {
-                  type: "object",
-                  properties: {
-                    success: { type: "boolean" },
-                    message: { type: "string" },
-                    user: { $ref: "#/components/schemas/UserResponse" },
-                  },
+                  allOf: [
+                    { $ref: "#/components/schemas/SuccessResponse" },
+                    {
+                      type: "object",
+                      properties: {
+                        message: {
+                          type: "string",
+                          example: "Akun pegawai (teknisi) berhasil dibuat",
+                        },
+                        user: { $ref: "#/components/schemas/UserResponse" },
+                      },
+                    },
+                  ],
                 },
               },
             },
@@ -2707,7 +2961,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         security: [{ bearerAuth: [] }],
         summary: "Update User Role/OPD",
         description:
-          "Memperbarui role, OPD, bidang, atau seksi seorang pengguna.",
+          "Memperbarui role, OPD, bidang, atau seksi seorang pengguna. Memerlukan izin `users.write`.",
         parameters: [
           {
             name: "id",
@@ -2750,7 +3004,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         security: [{ bearerAuth: [] }],
         summary: "List OPD",
         description:
-          "Mengambil daftar semua OPD (Organisasi Perangkat Daerah).",
+          "Mengambil daftar semua OPD (Organisasi Perangkat Daerah). Memerlukan izin `opd.read`.",
         parameters: [
           { name: "is_active", in: "query", schema: { type: "boolean" } },
           {
@@ -2828,7 +3082,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         security: [{ bearerAuth: [] }],
         summary: "Update OPD Calendar",
         description:
-          "Memperbarui jam kerja dan daftar hari libur untuk perhitungan SLA.",
+          "Memperbarui jam kerja dan daftar hari libur untuk perhitungan SLA. Memerlukan izin `opd.write`.",
         parameters: [
           {
             name: "id",
@@ -2874,7 +3128,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         tags: ["Admin"],
         security: [{ bearerAuth: [] }],
         summary: "Update Technician Skills",
-        description: "Memperbarui daftar keahlian (skills) seorang teknisi.",
+        description: "Memperbarui daftar keahlian (skills) seorang teknisi. Memerlukan izin `users.write`.",
         parameters: [
           {
             name: "id",
@@ -2928,7 +3182,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         security: [{ bearerAuth: [] }],
         summary: "Configure SLA",
         description:
-          "Mengkonfigurasi SLA (Service Level Agreement) untuk OPD tertentu.",
+          "Mengkonfigurasi SLA (Service Level Agreement) untuk OPD tertentu. Memerlukan izin `opd.write`.",
         requestBody: {
           content: {
             "application/json": {
@@ -2974,7 +3228,7 @@ seksi: { $ref: "#/components/schemas/SeksiResponse" },
         security: [{ bearerAuth: [] }],
         summary: "Get Audit Logs",
         description:
-          "Mengambil log audit aktivitas yang terjadi di dalam sistem.",
+          "Mengambil log audit aktivitas yang terjadi di dalam sistem. Memerlukan izin `reports.read`.",
         parameters: [
           {
             name: "user_id",
