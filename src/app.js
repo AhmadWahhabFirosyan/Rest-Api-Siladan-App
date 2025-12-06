@@ -1857,213 +1857,7 @@ v1Router.post("/requests/:id/reject", authenticate, async (req, res) => {
 });
 
 // ===========================================
-// 10. KNOWLEDGE BASE ROUTES
-// ===========================================
-// Get Knowledge Base Articles
-v1Router.get("/kb", authenticate, async (req, res) => {
-  try {
-    const { category, status, search, page = 1, limit = 20 } = req.query;
-
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    let query = supabase
-      .from("knowledge_base")
-      .select(
-        `
-        *,
-        author:created_by(id, username, full_name),
-        opd:opd_id(id, name)
-      `,
-        { count: "exact" }
-      )
-      .order("created_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
-
-    if (category) query = query.eq("category", category);
-    if (status) query = query.eq("status", status);
-    else query = query.eq("status", "published");
-
-    if (search) {
-      query = query.or(
-        `title.ilike.%${search}%,content.ilike.%${search}%,tags.cs.{${search}}`
-      );
-    }
-
-    const { data, count, error } = await query;
-    if (error) throw error;
-
-    res.json({
-      success: true,
-      data,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: count,
-        total_pages: Math.ceil(count / parseInt(limit)),
-      },
-    });
-  } catch (error) {
-    console.error("Get KB articles error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-// Suggest Knowledge Base Articles
-v1Router.get("/kb/suggest", authenticate, async (req, res) => {
-  try {
-    const { query } = req.query;
-
-    if (!query) {
-      return res.status(400).json({ error: "Query harus diisi" });
-    }
-
-    const { data, error } = await supabase
-      .from("knowledge_base")
-      .select("id, title, content, category")
-      .eq("status", "published")
-      .or(`title.ilike.%${query}%,content.ilike.%${query}%,tags.cs.{${query}}`)
-      .limit(5);
-
-    if (error) throw error;
-
-    res.json({ success: true, count: data.length, suggestions: data });
-  } catch (error) {
-    console.error("Suggest KB articles error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-// Get Knowledge Base Article Detail
-v1Router.get("/kb/:id", authenticate, async (req, res) => {
-  try {
-    const { data: article, error } = await supabase
-      .from("knowledge_base")
-      .select(
-        `
-        *,
-        author:created_by(id, username, full_name),
-        opd:opd_id(id, name)
-      `
-      )
-      .eq("id", req.params.id)
-      .single();
-
-    if (error) throw error;
-    if (!article) {
-      return res.status(404).json({ error: "Artikel tidak ditemukan" });
-    }
-
-    await supabase
-      .from("knowledge_base")
-      .update({ view_count: (article.view_count || 0) + 1 })
-      .eq("id", req.params.id);
-
-    res.json({ success: true, article });
-  } catch (error) {
-    console.error("Get KB article error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-// Create Knowledge Base Article
-v1Router.post("/kb", authenticate, authorize("kb.write"), async (req, res) => {
-  try {
-    const { title, content, category, tags, opd_id } = req.body;
-
-    if (!title || !content) {
-      return res.status(400).json({ error: "Title dan content harus diisi" });
-    }
-
-    const { data, error } = await supabase
-      .from("knowledge_base")
-      .insert({
-        title,
-        content,
-        category,
-        tags: tags || [],
-        opd_id: opd_id || req.user.opd_id,
-        created_by: req.user.id,
-        status: "draft",
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    res.status(201).json({
-      success: true,
-      message: "Artikel KB berhasil dibuat (draft)",
-      article: data,
-    });
-  } catch (error) {
-    console.error("Create KB article error:", error);
-    res.status(500).json({ error: "Terjadi kesalahan server" });
-  }
-});
-
-// Update Knowledge Base Article
-v1Router.put(
-  "/kb/:id",
-  authenticate,
-  authorize("kb.write"),
-  async (req, res) => {
-    try {
-      const { title, content, category, tags } = req.body;
-
-      const updateData = { updated_at: new Date() };
-      if (title) updateData.title = title;
-      if (content) updateData.content = content;
-      if (category) updateData.category = category;
-      if (tags) updateData.tags = tags;
-
-      const { data, error } = await supabase
-        .from("knowledge_base")
-        .update(updateData)
-        .eq("id", req.params.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      res.json({
-        success: true,
-        message: "Artikel KB berhasil diperbarui",
-        article: data,
-      });
-    } catch (error) {
-      console.error("Update KB article error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-// Delete Knowledge Base Article
-v1Router.delete(
-  "/kb/:id",
-  authenticate,
-  authorize("kb.write"),
-  async (req, res) => {
-    try {
-      const { error } = await supabase
-        .from("knowledge_base")
-        .delete()
-        .eq("id", req.params.id);
-
-      if (error) throw error;
-
-      res.json({
-        success: true,
-        message: "Artikel KB berhasil dihapus",
-      });
-    } catch (error) {
-      console.error("Delete KB article error:", error);
-      res.status(500).json({ error: "Terjadi kesalahan server" });
-    }
-  }
-);
-
-// ===========================================
-// 11. DASHBOARD ROUTE
+// 10. DASHBOARD ROUTE
 // ===========================================
 v1Router.get("/dashboard", authenticate, async (req, res) => {
   try {
@@ -2138,7 +1932,7 @@ v1Router.get("/dashboard", authenticate, async (req, res) => {
 });
 
 // ===========================================
-// 12. SEARCH ROUTE
+// 11. SEARCH ROUTE
 // ===========================================
 v1Router.get("/search", authenticate, async (req, res) => {
   try {
@@ -2199,7 +1993,7 @@ v1Router.get("/search", authenticate, async (req, res) => {
 });
 
 // ===========================================
-// 13. SYNC ROUTE (Mobile Offline)
+// 12. SYNC ROUTE (Mobile Offline)
 // ===========================================
 v1Router.post("/sync", authenticate, async (req, res) => {
   try {
@@ -2282,7 +2076,7 @@ v1Router.post("/sync", authenticate, async (req, res) => {
 });
 
 // ===========================================
-// 14. ADMIN OPERATIONS ROUTES
+// 13. ADMIN OPERATIONS ROUTES
 // ===========================================
 v1Router.get(
   "/admin/roles",
@@ -2807,7 +2601,7 @@ v1Router.post(
   }
 );
 // ===========================================
-// 15. QR CODE SCANNING ROUTE
+// 14. QR CODE SCANNING ROUTE
 // ===========================================
 v1Router.get("/assets/qr/:qr_code", authenticate, async (req, res) => {
   try {
@@ -2871,7 +2665,7 @@ v1Router.get("/assets/qr/:qr_code", authenticate, async (req, res) => {
 });
 
 // ===========================================
-// 16. COMMENTS ROUTES
+// 15. COMMENTS ROUTES
 // ===========================================
 // Add Comment to Incident
 v1Router.post("/incidents/:id/comments", authenticate, async (req, res) => {
@@ -2954,7 +2748,7 @@ v1Router.post("/requests/:id/comments", authenticate, async (req, res) => {
 });
 
 // ===========================================
-// 17. PROGRESS UPDATES ROUTES
+// 16. PROGRESS UPDATES ROUTES
 // ===========================================
 // Add Progress Update to Incident
 v1Router.post(
@@ -3171,7 +2965,7 @@ v1Router.post(
 );
 
 // ===========================================
-// 18. AUDIT LOGS ROUTE
+// 17. AUDIT LOGS ROUTE
 // ===========================================
 v1Router.get(
   "/admin/audit-logs",
@@ -3229,7 +3023,7 @@ v1Router.get(
 );
 
 // ===========================================
-// 19. ERROR HANDLING
+// 18. ERROR HANDLING
 // ===========================================
 // 404 Handler
 app.use((req, res) => {
@@ -3260,7 +3054,7 @@ app.use((err, req, res, next) => {
 });
 
 // ===========================================
-// 20. SERVER START
+// 19. SERVER START
 // ===========================================
 app.listen(PORT, () => {
   console.log(`
@@ -3286,7 +3080,7 @@ API Documentation: http://localhost:${PORT}/api-docs
 });
 
 // ===========================================
-// 21. GRACEFUL SHUTDOWN
+// 20. GRACEFUL SHUTDOWN
 // ===========================================
 process.on("SIGTERM", () => {
   console.log("SIGTERM received, shutting down gracefully...");
